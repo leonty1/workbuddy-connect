@@ -15,7 +15,7 @@
 ```text
 请帮我安装并验证 DSH（DeepSeek Harness）插件 dsh-workbuddy-connect（项目地址：https://github.com/leonty1/workbuddy-connect）：
 先阅读项目 README，确认我实际使用的界面（Web / Desktop / TUI）与 DSH 内核版本，桌面版以 App 内置核心为准，不要用独立 CLI 的版本代替；
-本 fork 面向 DSH 0.2.1-rc.2（插件 0.8.0），默认通过官方 CodeBuddy CLI 发起对话，请先确认 codebuddy 已安装并登录；
+本 fork 面向 DSH 0.2.1-rc.2（插件 0.8.1），默认通过官方 CodeBuddy CLI 发起对话，请先确认 codebuddy 已安装并登录；
 再按版本对应关系从本仓库或本地源码安装，优先走本机受支持的非插件市场渠道；部分 Desktop 发行版（尤其官方 Electron 版）的 profile 由 App 管理，各发行版规则未必相同，先确认我所用的发行版，再探查其合规的安装方式，但不得绕过其校验；
 任何本地文件或配置改动，先征得我同意并做好备份；
 装完后验证模型选择器里出现 WorkBuddy 分组，并陪我完成一次简短对话；
@@ -26,7 +26,7 @@
 
 | DSH 内核 | 推荐插件版 |
 |---|---|
-| 0.2.1-rc.2 | 0.8.0（本 fork，源码或本地 link 安装） |
+| 0.2.1-rc.2 | 0.8.1（本 fork，源码或本地 link 安装） |
 | 0.2.1-rc.2 | 0.7.9（上游 npm 版，仅网关） |
 | 0.2.1-rc.1 | 0.7.7 |
 | 0.2.0-rc.2 | 0.7.6 |
@@ -102,13 +102,18 @@ plugins:
     transport: cli          # cli（默认）或 gateway（上游原行为）
     # cliPath: /Users/me/.nvm/versions/node/v22.22.2/bin/codebuddy
     # cliTimeoutMs: 600000
+    # cliTools: false       # 默认纯文本；true 让 CLI 跑自己的工具循环
+    # cliCwd: /path/to/project   # cliTools 为 true 时，CLI 的工作目录
+    # cliPermissionMode: bypassPermissions # acceptEdits / bypassPermissions / default / plan / dontAsk / auto
+    # cliMaxTurns: 30       # cliTools 为 true 时的单轮工具步数上限
 ```
 
 - **独立登录**：CLI 使用自己 `~/.codebuddy` 下的登录态；桌面 App 未登录也能在 CLI 模式下使用内置模型列表。CLI 未登录时对话会失败并在会话中说明原因。
 - **不再触发 11128**：请求由官方 CLI 发出，不经过 DSH 直接调用 WorkBuddy 网关，因此不会命中网关对未批准客户端的拦截。
 - **保留模型与档位选择**：模型选择器仍显示 WorkBuddy 分组和倍率，推理档位只在模型目录明确声明时透传给 CLI（`--effort`）；未声明的模型按 CLI 默认档位运行。
-- **文本桥**：一次对话会把消息整理成一段文本交给 `codebuddy -p`，CLI 的工具执行被关闭（`--tools "" --max-turns 1`），DSH 的工具调用不会传给模型；图片以「已省略」占位，模型无法真正读图。请不要在 CLI 模式下期待工具调用或图片理解。
-- **额外开销**：CLI 每次调用会附带自己的系统提示与上下文（实测约 6k tokens），且比直连网关慢；长时间任务受 `cliTimeoutMs` 限制。
+- **默认纯文本**：一次对话会把消息整理成一段文本交给 `codebuddy -p`，CLI 的工具执行被关闭（`--tools "" --max-turns 1`），DSH 的工具调用不会传给模型；图片以「已省略」占位，模型无法真正读图。
+- **可选工具模式（`cliTools: true`）**：让 CLI 跑它自己的工具循环——真正执行命令、读写文件，对话里的工作目录取自 DSH 会话系统提示中的当前目录，并同步为 CLI 进程的工作目录。注意三点：执行发生在 CLI 内部，**DSH 的审批、工具卡片与会话日志都不覆盖它**，轨迹里只有最终文本；`cliPermissionMode` 控制 CLI 的权限档位（默认 `bypassPermissions`——无人值守无法弹审批，`dontAsk` 会拒绝所有工具，故工具模式默认预授权，如需收紧可改 `acceptEdits` 等）；`cliCwd` 未设置时 CLI 在临时目录里跑，因为桌面应用的自身工作目录不一定是项目。需要写文件的任务请显式配置 `cliCwd`。
+- **额外开销**：CLI 每次调用会附带自己的系统提示与上下文（实测约 6k tokens），且比直连网关慢；工具模式还会按 `cliMaxTurns`（默认 30）多跑若干模型回合，耗时与积分随任务上升。长时间任务受 `cliTimeoutMs` 限制。
 - **回退网关**：设置 `transport: gateway` 即恢复上游行为（需要桌面 App 登录），可用于对照排查。
 
 CLI 二进制按以下顺序查找：`cliPath`（含 `/` 时视为绝对路径，写错会直接报错）→ `PATH` → `~/.nvm/versions/node/*/bin`（取最新版本）→ `~/.local/bin`、`~/.npm-global/bin`、`~/.volta/bin`、`~/.bun/bin`、`/opt/homebrew/bin`、`/usr/local/bin`。桌面应用的启动环境通常缺少 shell 的 PATH，自动查找覆盖了常见安装位置；仍找不到时请显式配置 `cliPath`。
@@ -155,7 +160,7 @@ dsh plugin --profile web exec dsh-workbuddy-connect doctor --provider workbuddy-
 
 | DSH 内核 | 推荐插件版 | 注意事项 |
 |---|---|---|
-| `0.2.1-rc.2` | `0.8.0` | 本 fork；国内版默认走 CodeBuddy CLI，不发布到 npm，用本仓库源码或本地 `link:` 安装。 |
+| `0.2.1-rc.2` | `0.8.1` | 本 fork；国内版默认走 CodeBuddy CLI，不发布到 npm，用本仓库源码或本地 `link:` 安装。 |
 | `0.2.1-rc.2` | `0.7.9` | 上游 npm 版；仅网关。 |
 | `0.2.1-rc.1` | `0.7.7` | 内核升级到 `@earendil-works/pi-ai` 1.3.0，插件同步自带 1.3.0，历史遗留的 0.87.1 overrides 必须移除（见下方 pi-ai 说明）。 |
 | `0.2.0-rc.2` | `0.7.6` | 上一代内核线；修复企业账号模型目录缺项与国际版对话被渠道校验拦截，勿停留在有注册表回归的 0.7.2。 |
@@ -166,6 +171,7 @@ dsh plugin --profile web exec dsh-workbuddy-connect doctor --provider workbuddy-
 
 历次更新（0.7.x 及更早的完整记录见上游 [releases](https://github.com/corrinehu/dsh-workbuddy-connect/releases)）：
 
+- **0.8.1**（本 fork）：CLI 新增可选工具模式 `cliTools`（默认仍为纯文本）：开启后由 CodeBuddy CLI 自己的工具循环执行命令与文件读写（`--tools default`、`--permission-mode` 由 `cliPermissionMode` 控制、步数上限 `cliMaxTurns`），会话工作目录同步为 CLI 进程的工作目录；新增 `cliCwd` 指定工作目录。
 - **0.8.0**（本 fork）：新增 `transport: cli`（默认），国内版对话改由官方 CodeBuddy CLI 以自身登录态发出，避开 WorkBuddy 网关对未批准客户端的拦截；保留模型选择与推理档位透传；CLI 模式只注册国内版分组；`cliPath` / `cliTimeoutMs` 可配置，`transport: gateway` 可回退。CLI 为文本桥，DSH 工具与图片不参与对话。修复 legacy 设置模式下合并配置时丢失 `transport` 的问题。
 
 - **0.7.9**：恢复 DSH 0.2.1-rc.2 上国际版最大上下文窗口开关，修复延迟初始化及设置持久化（PR [#172](https://github.com/corrinehu/dsh-workbuddy-connect/pull/172)，by @1Dreamer666）；避免本地服务绑定到 fetch 禁用端口导致国际版 502（PR [#164](https://github.com/corrinehu/dsh-workbuddy-connect/pull/164)，by @Xiong-Ziyi）；同名积分包合并展示，减少重复条目。

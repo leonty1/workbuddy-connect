@@ -1320,13 +1320,19 @@ declare class WorkBuddyProbeStore {
 //#endregion
 //#region src/cli.d.ts
 /**
- * Text bridge to the official CodeBuddy CLI.
+ * Bridge to the official CodeBuddy CLI.
  *
  * WorkBuddy's gateway rejects requests from unapproved clients (code 11128),
  * and a DSH request is one. The CLI is the vendor's own client, so it carries
- * the same conversation without that rejection. It is a text-only transport:
- * built-in tools stay disabled and the bridge prompt forbids claiming that any
- * action ran. Each DSH turn becomes one headless CLI run.
+ * the same conversation without that rejection. Each DSH turn becomes one
+ * headless CLI run.
+ *
+ * Two modes. **Text-only** (the default) keeps the CLI's built-in tools
+ * disabled and appends a bridge prompt forbidding it from claiming that any
+ * action ran, because a model with no tools otherwise invents plausible
+ * command output. **Tool mode** enables the CLI's own tool loop: it runs
+ * commands and edits files in a working directory, and its transcript becomes
+ * the answer. Execution happens inside the CLI, outside DSH's own loop.
  *
  * @module dsh-workbuddy-connect/cli
  */
@@ -1335,6 +1341,8 @@ interface CodeBuddyLogger {
   warn(...args: unknown[]): void;
   error(...args: unknown[]): void;
 }
+/** The CLI's headless permission modes. */
+type CodeBuddyPermissionMode = 'acceptEdits' | 'bypassPermissions' | 'default' | 'plan' | 'dontAsk' | 'auto';
 /** CLI process settings, resolved from the plugin configuration. */
 interface CodeBuddyOptions {
   /** Binary name or absolute path; defaults to `codebuddy`. */
@@ -1343,6 +1351,19 @@ interface CodeBuddyOptions {
   timeoutMs?: number;
   /** Working directory for the CLI process; defaults to the OS temp directory. */
   cwd?: string;
+  /**
+   * Enable the CLI's own tool loop (run commands, edit files in `cwd`).
+   * Off by default, which keeps the text-only bridge.
+   */
+  tools?: boolean;
+  /**
+   * The CLI's permission mode, consulted only when `tools` is on. Defaults to
+   * `bypassPermissions`: a headless run cannot show an approval prompt, so
+   * `dontAsk` would refuse every tool and a tool-enabled run could never act.
+   */
+  permissionMode?: CodeBuddyPermissionMode;
+  /** Agentic-turn ceiling for one run, only meaningful when `tools` is on. */
+  maxTurns?: number;
   logger?: CodeBuddyLogger;
 }
 //#endregion
@@ -1750,13 +1771,33 @@ interface Config {
   /**
    * How chat requests reach a model: the official CodeBuddy CLI (`cli`) or
    * WorkBuddy's HTTP gateway (`gateway`). The CLI is not rejected as an
-   * unapproved client, but it is text-only: DSH tools are unavailable.
+   * unapproved client. Off, it is text-only: DSH tools are unavailable.
    */
   transport?: 'cli' | 'gateway';
   /** CodeBuddy CLI binary used by `cli`; a path or a name searched on PATH. */
   cliPath?: string;
   /** Ceiling for one headless CLI run, in milliseconds. */
   cliTimeoutMs?: number;
+  /**
+   * Let the CLI run its own tool loop (commands, file edits) instead of
+   * answering text only. Execution happens inside the CLI, outside DSH's
+   * permission loop, and no DSH tool events are produced. Off by default.
+   */
+  cliTools?: boolean;
+  /**
+   * Directory the CLI works in when `cliTools` is on. Without one, the CLI
+   * runs in a temp directory, because the host app's own working directory
+   * is not necessarily a project.
+   */
+  cliCwd?: string;
+  /**
+   * The CLI's headless permission mode when `cliTools` is on. Defaults to
+   * `bypassPermissions`, the only mode in which a non-interactive run can
+   * actually execute tools (`dontAsk` refuses them all).
+   */
+  cliPermissionMode?: 'acceptEdits' | 'bypassPermissions' | 'default' | 'plan' | 'dontAsk' | 'auto';
+  /** Agentic-turn ceiling for one CLI run when `cliTools` is on. */
+  cliMaxTurns?: number;
 }
 declare const Config: z<Config>;
 /**

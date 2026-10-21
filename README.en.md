@@ -15,7 +15,7 @@ Brings WorkBuddy models into [DeepSeek Harness](https://github.com/deepseek-ai/d
 ```text
 Please install and verify the DSH (DeepSeek Harness) plugin dsh-workbuddy-connect for me (project: https://github.com/leonty1/workbuddy-connect).
 Start by reading the project README and confirming which interface I actually use (Web / Desktop / TUI) and its DSH core version — for the Desktop app, the bundled core, never the standalone CLI's version.
-This fork targets DSH 0.2.1-rc.2 (plugin 0.8.0) and sends chat through the official CodeBuddy CLI by default; check that codebuddy is installed and signed in first.
+This fork targets DSH 0.2.1-rc.2 (plugin 0.8.1) and sends chat through the official CodeBuddy CLI by default; check that codebuddy is installed and signed in first.
 Then install from this repository or local source, preferring a locally supported non-market channel; on some Desktop distributions (the official Electron app in particular) the profile is app-managed and rules vary by distribution — check mine first, then explore its compliant install route, but never bypass its validation.
 Ask for my consent and make backups before changing any local files or configuration.
 After installing, verify the WorkBuddy group appears in the model picker and walk me through one short conversation.
@@ -26,7 +26,7 @@ Core-to-plugin quick reference (full table in "Compatibility and release history
 
 | DSH core | Recommended plugin |
 |---|---|
-| 0.2.1-rc.2 | 0.8.0 (this fork, source or local link install) |
+| 0.2.1-rc.2 | 0.8.1 (this fork, source or local link install) |
 | 0.2.1-rc.2 | 0.7.9 (upstream npm, gateway only) |
 | 0.2.1-rc.1 | 0.7.7 |
 | 0.2.0-rc.2 | 0.7.6 |
@@ -102,13 +102,18 @@ plugins:
     transport: cli          # cli (default) or gateway (upstream behaviour)
     # cliPath: /Users/me/.nvm/versions/node/v22.22.2/bin/codebuddy
     # cliTimeoutMs: 600000
+    # cliTools: false       # text-only by default; true runs the CLI's own tool loop
+    # cliCwd: /path/to/project   # the CLI working directory when cliTools is true
+    # cliPermissionMode: bypassPermissions # acceptEdits / bypassPermissions / default / plan / dontAsk / auto
+    # cliMaxTurns: 30       # per-run agentic-turn ceiling when cliTools is true
 ```
 
 - **Independent sign-in**: the CLI uses its own sign-in under `~/.codebuddy`; the CN group is available in CLI mode even when the desktop app is signed out. If the CLI itself is signed out, a chat fails with an explanation in the conversation.
 - **No more 11128**: requests are sent by the official CLI rather than DSH calling the WorkBuddy gateway directly, so the gateway's unapproved-client check is not triggered.
 - **Model and reasoning selection stay**: the picker still lists the WorkBuddy group and credit multipliers, and a reasoning effort is forwarded (`--effort`) only when the model's catalog entry declares it; other models run at the CLI default.
-- **Text bridge**: each turn flattens the conversation into one text prompt for `codebuddy -p`. CLI tool execution is disabled (`--tools "" --max-turns 1`) and DSH tool calls are not passed through; images become an "omitted" placeholder and the model cannot actually read them. Do not expect tool use or image understanding in CLI mode.
-- **Extra overhead**: every CLI call carries the CLI's own system prompt and context (about 6k tokens measured) and is slower than the direct gateway; a long turn is bounded by `cliTimeoutMs`.
+- **Text-only by default**: each turn flattens the conversation into one text prompt for `codebuddy -p`. CLI tool execution is disabled (`--tools "" --max-turns 1`) and DSH tool calls are not passed through; images become an "omitted" placeholder and the model cannot actually read them.
+- **Optional tool mode (`cliTools: true`)**: the CLI runs its own tool loop — it really executes commands and reads/writes files, with the working directory taken from the DSH session's system prompt and applied to the CLI process as well. Three caveats: execution happens inside the CLI, so **DSH's approval prompts, tool cards, and session log do not cover it** — the transcript shows only the final text; `cliPermissionMode` selects the CLI's permission level (default `bypassPermissions` — an unattended run cannot show an approval prompt, and `dontAsk` refuses every tool, so tool mode pre-approves by default; tighten to `acceptEdits` etc. if you want to); without `cliCwd` the CLI works in a temp directory, because a desktop app's own working directory is not necessarily a project. Set `cliCwd` explicitly for tasks that write files.
+- **Extra overhead**: every CLI call carries the CLI's own system prompt and context (about 6k tokens measured) and is slower than the direct gateway; tool mode adds further model turns bounded by `cliMaxTurns` (default 30), so time and credits rise with the task. A long turn is bounded by `cliTimeoutMs`.
 - **Fallback to the gateway**: set `transport: gateway` to restore upstream behaviour (requires the desktop app's sign-in), useful for comparison and diagnosis.
 
 The CLI binary is resolved in this order: `cliPath` (a value containing `/` is authoritative and a wrong path fails loudly) → `PATH` → `~/.nvm/versions/node/*/bin` (newest version) → `~/.local/bin`, `~/.npm-global/bin`, `~/.volta/bin`, `~/.bun/bin`, `/opt/homebrew/bin`, `/usr/local/bin`. A desktop app often launches with a minimal PATH, so common install locations are searched automatically; if the binary still cannot be found, set `cliPath` explicitly.
@@ -154,7 +159,7 @@ The plugin version must match the DSH core — a mismatched combination fails to
 
 | DSH core | Recommended plugin | Notes |
 |---|---|---|
-| `0.2.1-rc.2` | `0.8.0` | This fork; CN chat runs through the CodeBuddy CLI by default. Not published to npm — install from this repository or a local `link:`. |
+| `0.2.1-rc.2` | `0.8.1` | This fork; CN chat runs through the CodeBuddy CLI by default. Not published to npm — install from this repository or a local `link:`. |
 | `0.2.1-rc.2` | `0.7.9` | Upstream npm release; gateway only. |
 | `0.2.1-rc.1` | `0.7.7` | The core moved to `@earendil-works/pi-ai` 1.3.0, so the plugin bundles 1.3.0 too — a leftover 0.87.1 overrides entry must be removed (see the pi-ai note below). |
 | `0.2.0-rc.2` | `0.7.6` | Previous core line; fixes enterprise catalog gaps and international chat requests blocked by the upstream channel check. Avoid 0.7.2 with its registry regression. |
@@ -165,6 +170,7 @@ The plugin version must match the DSH core — a mismatched combination fails to
 
 Release history (full 0.7.x and earlier records at the upstream [releases](https://github.com/corrinehu/dsh-workbuddy-connect/releases)):
 
+- **0.8.1** (this fork): adds the optional CLI tool mode `cliTools` (still text-only by default): when enabled, the CodeBuddy CLI runs its own tool loop — executing commands and reading/writing files (`--tools default`, `--permission-mode` from `cliPermissionMode`, turn ceiling `cliMaxTurns`) — and the session working directory is applied to the CLI process; adds `cliCwd` for choosing that directory.
 - **0.8.0** (this fork): adds `transport: cli` (default) so CN chat runs through the official CodeBuddy CLI under its own sign-in, avoiding the WorkBuddy gateway's unapproved-client rejection; keeps model selection and reasoning-effort forwarding; CLI mode registers the CN group only; `cliPath` / `cliTimeoutMs` are configurable and `transport: gateway` falls back. The CLI is a text bridge, so DSH tools and images never reach the model. Also fixes the legacy settings path dropping `transport` when merging section config.
 - **0.7.9**: restores the international edition's maximum-context switch on DSH 0.2.1-rc.2, including delayed initialization and persistent settings (PR [#172](https://github.com/corrinehu/dsh-workbuddy-connect/pull/172), by @1Dreamer666); avoids fetch-blocked local ports that could cause international-edition 502 errors (PR [#164](https://github.com/corrinehu/dsh-workbuddy-connect/pull/164), by @Xiong-Ziyi); combines credit packages with the same name to reduce repeated entries.
 - **0.7.8**: adapts to DSH 0.2.1-rc.2; bundles the official atomic-write helper instead of relying on host module exposure; refreshes the China catalog snapshot and distinguishes Hy3 / Hy3-X; improves probe result labels and fixes the credit-refresh placement and tooltip. Thanks to @chenpiyanghappy for PR [#156](https://github.com/corrinehu/dsh-workbuddy-connect/pull/156).

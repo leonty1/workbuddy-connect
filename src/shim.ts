@@ -20,7 +20,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { Readable } from 'node:stream'
 import type { WorkBuddyCredentialStore } from './auth.ts'
 import type { WorkBuddyCatalog } from './catalog.ts'
-import { flattenChatPrompt, runCodeBuddyChat, type CodeBuddyOptions } from './cli.ts'
+import { flattenChatPrompt, runCodeBuddyChat, workingDirectoryOf, type CodeBuddyOptions } from './cli.ts'
 import { bindToUsablePort, hostIsLoopback, originIsLoopback } from './loopback.ts'
 import { extractDisplayErrorMessage, prepareChatBody, WorkBuddyUpstreamClient, type UpstreamErrorKind, type WorkBuddyEffort } from './upstream.ts'
 
@@ -68,6 +68,21 @@ const REQUEST_BODY_LIMIT = 64 * 1024 * 1024
 /** Narrow one string to an effort the model catalog can declare. */
 function isDeclaredEffort(value: string): value is WorkBuddyEffort {
   return value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh' || value === 'max'
+}
+
+/** Combined text of the system and developer messages, for context recovery. */
+function systemTextOf(messages: unknown): string {
+  if (!Array.isArray(messages)) return ''
+  const parts: string[] = []
+  for (const message of messages) {
+    if (typeof message !== 'object' || message === null) continue
+    const record = message as Record<string, unknown>
+    const role = typeof record['role'] === 'string' ? record['role'] : ''
+    if (role !== 'system' && role !== 'developer') continue
+    const content = record['content']
+    if (typeof content === 'string') parts.push(content)
+  }
+  return parts.join('\n')
 }
 
 /** Chat-completion POSTs must carry a JSON body type (simple-request CSRF drops here). */
@@ -314,7 +329,11 @@ export function createWorkBuddyShim(options: WorkBuddyShimOptions): WorkBuddyShi
       writeOpenAIError(res, 400, 'invalid_request', 'model is required')
       return
     }
-    const prompt = flattenChatPrompt(record['messages'])
+    // Tool-enabled runs keep the working-directory line out of DSH's system
+    // text so the CLI knows which directory its commands belong to.
+    const toolsEnabled = cliOptions.tools === true
+    const prompt = flattenChatPrompt(record['messages'], toolsEnabled)
+    const sessionCwd = toolsEnabled ? workingDirectoryOf(systemTextOf(record['messages'])) : undefined
     if (prompt === '') {
       writeOpenAIError(res, 400, 'invalid_request', 'messages must contain user content')
       return
@@ -377,6 +396,7 @@ export function createWorkBuddyShim(options: WorkBuddyShimOptions): WorkBuddyShi
       model,
       prompt,
       ...effort === undefined ? {} : { effort },
+      ...sessionCwd === undefined ? {} : { cwd: sessionCwd },
       signal: controller.signal,
     }, {
       onThinking(delta) {

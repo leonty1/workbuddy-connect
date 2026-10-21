@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -17,6 +17,9 @@ const { appendFileSync } = require('node:fs')
 const args = process.argv.slice(2)
 if (process.env.FAKE_ARGS_FILE) {
   appendFileSync(process.env.FAKE_ARGS_FILE, JSON.stringify(args) + '\\n')
+}
+if (process.env.FAKE_CWD_FILE) {
+  appendFileSync(process.env.FAKE_CWD_FILE, process.cwd() + '\\n')
 }
 const mode = process.env.FAKE_CODEBUDDY_MODE || 'partial'
 const emit = value => process.stdout.write(JSON.stringify(value) + '\\n')
@@ -66,19 +69,23 @@ const CLEANUP: (() => Promise<void>)[] = []
 let directory = ''
 let binary = ''
 let argsFile = ''
+let cwdFile = ''
 
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), 'wb-cli-'))
   binary = join(directory, 'codebuddy')
   argsFile = join(directory, 'args.ndjson')
+  cwdFile = join(directory, 'cwd.ndjson')
   await writeFile(binary, FAKE_CLI)
   await chmod(binary, 0o755)
   process.env['FAKE_ARGS_FILE'] = argsFile
+  process.env['FAKE_CWD_FILE'] = cwdFile
 })
 
 afterEach(async () => {
   delete process.env['FAKE_CODEBUDDY_MODE']
   delete process.env['FAKE_ARGS_FILE']
+  delete process.env['FAKE_CWD_FILE']
   await Promise.all(CLEANUP.splice(0).map(clean => clean()))
   await rm(directory, { recursive: true, force: true })
 })
@@ -87,6 +94,12 @@ afterEach(async () => {
 async function lastArgs(): Promise<string[]> {
   const lines = (await readFile(argsFile, 'utf8')).trim().split('\n')
   return JSON.parse(lines.at(-1) ?? '[]') as string[]
+}
+
+/** Working directory the most recent fake CLI invocation ran in. */
+async function lastCwd(): Promise<string> {
+  const lines = (await readFile(cwdFile, 'utf8')).trim().split('\n')
+  return lines.at(-1) ?? ''
 }
 
 /** Value following one flag, if present. */
@@ -147,6 +160,33 @@ describe('flattenChatPrompt', () => {
     expect(prompt).toContain('[User]\n继续')
     expect(prompt).not.toContain('ignored system text')
   })
+
+  it('recovers the working-directory line from the system text when keepCwd is set', () => {
+    const prompt = flattenChatPrompt([
+      { role: 'system', content: 'You are an agent. Current working directory: "/Users/tongyi/dsh-lty". Never claim tools ran.' },
+      { role: 'user', content: '改一下入口文件' },
+    ], true)
+    expect(prompt).toContain('[User]\n改一下入口文件')
+    expect(prompt).toContain('The working directory for this task is /Users/tongyi/dsh-lty.')
+    expect(prompt).not.toContain('Never claim tools ran.')
+  })
+
+  it('drops the rest of the system text and stays verbatim-free without keepCwd', () => {
+    const prompt = flattenChatPrompt([
+      { role: 'system', content: 'Current working directory: "/Users/tongyi/dsh-lty".' },
+      { role: 'user', content: '你好' },
+    ])
+    expect(prompt).toBe('你好')
+  })
+
+  it('appends nothing when the system text names no directory', () => {
+    const prompt = flattenChatPrompt([
+      { role: 'system', content: 'no directory line here' },
+      { role: 'user', content: '你好' },
+    ], true)
+    expect(prompt).toContain('[User]\n你好')
+    expect(prompt).not.toContain('The working directory')
+  })
 })
 
 describe('runCodeBuddyChat', () => {
@@ -178,6 +218,50 @@ describe('runCodeBuddyChat', () => {
       onText() {},
     })
     expect(flagValue(await lastArgs(), '--effort')).toBe('high')
+  })
+
+  it('runs the tool loop with a configured permission mode, turn ceiling, and directory', async () => {
+    const project = join(directory, 'project')
+    await mkdir(project, { recursive: true })
+    await runCodeBuddyChat({ binary, tools: true, permissionMode: 'acceptEdits', maxTurns: 7, cwd: project }, {
+      model: 'glm-5.3',
+      prompt: 'hi',
+    }, {
+      onThinking() {},
+      onText() {},
+    })
+    const args = await lastArgs()
+    expect(flagValue(args, '--tools')).toBe('default')
+    expect(flagValue(args, '--max-turns')).toBe('7')
+    expect(flagValue(args, '--permission-mode')).toBe('acceptEdits')
+    expect(args).not.toContain('--append-system-prompt')
+    // Node resolves the child's cwd through macOS temp symlinks.
+    expect(await lastCwd()).toBe(await realpath(project))
+  })
+
+  it('keeps the text-only bridge by default and runs in a temp directory', async () => {
+    await runCodeBuddyChat({ binary }, { model: 'glm-5.3', prompt: 'hi' }, {
+      onThinking() {},
+      onText() {},
+    })
+    const args = await lastArgs()
+    expect(flagValue(args, '--tools')).toBe('')
+    expect(flagValue(args, '--max-turns')).toBe('1')
+    expect(flagValue(args, '--permission-mode')).toBe('dontAsk')
+    expect(flagValue(args, '--append-system-prompt')).toBeDefined()
+    // macOS temp paths are symlinked; compare against the resolved directory.
+    const resolvedTmp = await realpath(tmpdir())
+    expect((await lastCwd()).startsWith(resolvedTmp)).toBe(true)
+  })
+
+  it('defaults a tool run to bypassPermissions with the shared turn ceiling', async () => {
+    await runCodeBuddyChat({ binary, tools: true }, { model: 'glm-5.3', prompt: 'hi' }, {
+      onThinking() {},
+      onText() {},
+    })
+    const args = await lastArgs()
+    expect(flagValue(args, '--permission-mode')).toBe('bypassPermissions')
+    expect(flagValue(args, '--max-turns')).toBe('30')
   })
 
   it('uses the full assistant message when no partial events arrive', async () => {
@@ -280,6 +364,39 @@ describe('CLI transport in the shim', () => {
     expect(body).toContain('"prompt_tokens":12')
     expect(body).toContain('data: [DONE]')
     expect(flagValue(await lastArgs(), '--effort')).toBe('high')
+  })
+
+  it('recovers the working-directory line when tools are enabled', async () => {
+    const store = new WorkBuddyCredentialStore({
+      desktopPath: join(directory, 'missing-desktop.info'),
+      ownPath: join(directory, 'own.json'),
+      refresh: async () => ({ accessToken: 'unused' }),
+    })
+    const shim = createWorkBuddyShim({
+      store,
+      client: { async chatStream() { throw new Error('unused') } },
+      catalog: new WorkBuddyCatalog(),
+      transport: 'cli',
+      cli: { binary, timeoutMs: 5_000, tools: true },
+    })
+    await shim.ready
+    CLEANUP.push(() => shim.close())
+    process.env['FAKE_CODEBUDDY_MODE'] = 'echo-prompt'
+    const response = await fetch(`${shim.baseUrl()}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', authorization: `Bearer ${shim.token()}` },
+      body: JSON.stringify({
+        model: 'glm-5.3',
+        messages: [
+          { role: 'system', content: 'You are an agent. Current working directory: "/Users/tongyi/dsh-lty".' },
+          { role: 'user', content: '改一下入口文件' },
+        ],
+      }),
+    })
+    expect(response.status).toBe(200)
+    const body = await response.text()
+    expect(body).toContain('The working directory for this task is /Users/tongyi/dsh-lty.')
+    expect(flagValue(await lastArgs(), '--tools')).toBe('default')
   })
 
   it('sends the flattened conversation and drops system text', async () => {

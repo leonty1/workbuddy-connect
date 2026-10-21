@@ -1,11 +1,17 @@
 /**
- * Text bridge to the official CodeBuddy CLI.
+ * Bridge to the official CodeBuddy CLI.
  *
  * WorkBuddy's gateway rejects requests from unapproved clients (code 11128),
  * and a DSH request is one. The CLI is the vendor's own client, so it carries
- * the same conversation without that rejection. It is a text-only transport:
- * built-in tools stay disabled and the bridge prompt forbids claiming that any
- * action ran. Each DSH turn becomes one headless CLI run.
+ * the same conversation without that rejection. Each DSH turn becomes one
+ * headless CLI run.
+ *
+ * Two modes. **Text-only** (the default) keeps the CLI's built-in tools
+ * disabled and appends a bridge prompt forbidding it from claiming that any
+ * action ran, because a model with no tools otherwise invents plausible
+ * command output. **Tool mode** enables the CLI's own tool loop: it runs
+ * commands and edits files in a working directory, and its transcript becomes
+ * the answer. Execution happens inside the CLI, outside DSH's own loop.
  *
  * @module dsh-workbuddy-connect/cli
  */
@@ -23,6 +29,9 @@ export interface CodeBuddyLogger {
   error(...args: unknown[]): void
 }
 
+/** The CLI's headless permission modes. */
+export type CodeBuddyPermissionMode = 'acceptEdits' | 'bypassPermissions' | 'default' | 'plan' | 'dontAsk' | 'auto'
+
 /** CLI process settings, resolved from the plugin configuration. */
 export interface CodeBuddyOptions {
   /** Binary name or absolute path; defaults to `codebuddy`. */
@@ -31,6 +40,19 @@ export interface CodeBuddyOptions {
   timeoutMs?: number
   /** Working directory for the CLI process; defaults to the OS temp directory. */
   cwd?: string
+  /**
+   * Enable the CLI's own tool loop (run commands, edit files in `cwd`).
+   * Off by default, which keeps the text-only bridge.
+   */
+  tools?: boolean
+  /**
+   * The CLI's permission mode, consulted only when `tools` is on. Defaults to
+   * `bypassPermissions`: a headless run cannot show an approval prompt, so
+   * `dontAsk` would refuse every tool and a tool-enabled run could never act.
+   */
+  permissionMode?: CodeBuddyPermissionMode
+  /** Agentic-turn ceiling for one run, only meaningful when `tools` is on. */
+  maxTurns?: number
   logger?: CodeBuddyLogger
 }
 
@@ -39,6 +61,12 @@ export interface CodeBuddyRequest {
   model: string
   prompt: string
   effort?: string
+  /**
+   * Working directory recovered from the conversation's system text. In
+   * tool mode it wins over the temp-directory fallback; an explicit
+   * `CodeBuddyOptions.cwd` wins over this.
+   */
+  cwd?: string
   signal?: AbortSignal
 }
 
@@ -63,15 +91,19 @@ export interface CodeBuddyResult {
 /** Default ceiling for one CLI run. */
 const DEFAULT_TIMEOUT_MS = 600_000
 
+/** Default agentic-turn ceiling for a tool-enabled run. */
+const DEFAULT_MAX_TURNS = 30
+
 /** Upper bound on retained stderr, enough for a diagnostic without memory growth. */
 const STDERR_LIMIT = 16_384
 
 /**
- * System text appended to the CLI's own prompt for every bridged turn.
+ * System text appended to the CLI's own prompt for every text-only turn.
  *
  * With tools disabled the model otherwise invents plausible command output
  * instead of admitting it cannot run anything, which would read as a real
- * execution result in the transcript.
+ * execution result in the transcript. Tool mode omits it: the actions are
+ * real, and a blanket denial prompt would suppress them.
  */
 export const CLI_BRIDGE_PROMPT = [
   'You are answering through a text-only bridge inside another agent harness.',
@@ -178,6 +210,24 @@ function contentText(value: unknown): string {
   return parts.join('\n')
 }
 
+/**
+ * Pull the working-directory line out of DSH's system text.
+ *
+ * {@link flattenChatPrompt} drops the whole system message (it is written for
+ * DSH's own tool loop), but a tool-enabled CLI run still needs to know which
+ * directory its commands belong to — the line the harness appends is all that
+ * names it.
+ */
+export function workingDirectoryOf(systemText: string): string | undefined {
+  const match = /Current working directory: "(?:[^"\\]|\\.)*"/u.exec(systemText)
+  if (match === null) return undefined
+  try {
+    return JSON.parse(match[0].slice('Current working directory: '.length)) as string
+  } catch {
+    return undefined
+  }
+}
+
 /** Names of the tools an assistant message requested, when the transcript has any. */
 function toolCallSummary(value: unknown): string {
   if (!Array.isArray(value)) return ''
@@ -197,21 +247,33 @@ function toolCallSummary(value: unknown): string {
  *
  * System and developer messages are omitted: DSH's system prompt is written
  * for its own tool loop and would both bloat every CLI run and instruct the
- * model to use tools this transport does not provide. A single user turn is
+ * model to use tools this transport does not provide. One exception is the
+ * working-directory line: a tool-enabled run still needs to know which
+ * directory its commands belong to, so when the caller sets `keepCwd`, that
+ * line is recovered from the system text and appended. A single user turn is
  * sent verbatim; a longer conversation is labelled by role so the model can
  * follow the exchange.
  *
  * @param messages - The request's `messages` value.
+ * @param keepCwd - Recover the working-directory line from the system text.
  * @returns The prompt, or an empty string when no user content is present.
  */
-export function flattenChatPrompt(messages: unknown): string {
+export function flattenChatPrompt(messages: unknown, keepCwd = false): string {
   if (!Array.isArray(messages)) return ''
   const entries: string[] = []
   for (const message of messages) {
     if (typeof message !== 'object' || message === null) continue
     const record = message as Record<string, unknown>
     const role = typeof record['role'] === 'string' ? record['role'] : 'user'
-    if (role === 'system' || role === 'developer') continue
+    if (role === 'system' || role === 'developer') {
+      // DSH's tool-loop instructions come along; only the directory line has a
+      // use in a tool-enabled CLI run.
+      if (keepCwd) {
+        const directory = workingDirectoryOf(contentText(record['content']))
+        if (directory !== undefined) entries.push(`The working directory for this task is ${directory}.`)
+      }
+      continue
+    }
     const text = contentText(record['content'])
     if (role === 'tool') {
       const name = typeof record['name'] === 'string' && record['name'] !== '' ? ` (${record['name']})` : ''
@@ -225,11 +287,13 @@ export function flattenChatPrompt(messages: unknown): string {
     }
     if (text !== '') entries.push(`[User]\n${text}`)
   }
-  const first = entries[0]
-  if (entries.length === 1 && first !== undefined && first.startsWith('[User]\n')) {
-    return first.slice('[User]\n'.length)
-  }
   if (entries.length === 0) return ''
+  if (!keepCwd) {
+    const first = entries[0]
+    if (entries.length === 1 && first !== undefined && first.startsWith('[User]\n')) {
+      return first.slice('[User]\n'.length)
+    }
+  }
   return `Continue the conversation below and answer the final user message.\n\n${entries.join('\n\n')}`
 }
 
@@ -254,18 +318,22 @@ function integerOf(value: unknown): number | undefined {
 }
 
 /** Arguments for one headless turn. */
-function cliArguments(request: CodeBuddyRequest): string[] {
+function cliArguments(options: CodeBuddyOptions, request: CodeBuddyRequest): string[] {
+  const toolsEnabled = options.tools === true
   const args = [
     '-p',
     '--model', request.model,
-    '--tools', '',
-    '--max-turns', '1',
-    '--permission-mode', 'dontAsk',
+    '--tools', toolsEnabled ? 'default' : '',
+    '--max-turns', String(toolsEnabled ? options.maxTurns ?? DEFAULT_MAX_TURNS : 1),
+    // A headless run cannot show an approval prompt, so `dontAsk` fails safe
+    // by refusing every tool. Tool mode therefore pre-approves by default;
+    // the text-only bridge carries no tools, so its mode never matters.
+    '--permission-mode', toolsEnabled ? options.permissionMode ?? 'bypassPermissions' : 'dontAsk',
     '--setting-sources', '',
     '--output-format', 'stream-json',
     '--include-partial-messages',
-    '--append-system-prompt', CLI_BRIDGE_PROMPT,
   ]
+  if (!toolsEnabled) args.push('--append-system-prompt', CLI_BRIDGE_PROMPT)
   if (request.effort !== undefined) args.push('--effort', request.effort)
   return args
 }
@@ -303,8 +371,15 @@ export async function runCodeBuddyChat(
 
   let child
   try {
-    child = spawn(binary, cliArguments(request), {
-      cwd: options.cwd ?? tmpdir(),
+    child = spawn(binary, cliArguments(options, request), {
+      // The default stays a temp directory on purpose: a GUI-launched host's
+      // own working directory can be `/` or the app bundle, where the model's
+      // edits would be surprising. Tool mode targets the real project through
+      // an explicit `cwd` (config) or the directory the conversation itself
+      // names (recovered from DSH's system text); text mode never uses either.
+      cwd: options.cwd
+        ?? (options.tools === true ? request.cwd : undefined)
+        ?? tmpdir(),
       env: childEnvironment(binary),
       stdio: ['pipe', 'pipe', 'pipe'],
     })

@@ -2,7 +2,7 @@
   "name": "dsh-workbuddy-connect",
   "displayName": "DSH WorkBuddy Connect",
   "description": "将 WorkBuddy 模型接入 DeepSeek Harness：默认通过官方 CodeBuddy CLI 发送提示词，避开网关的未批准客户端拦截 — bring WorkBuddy models into DeepSeek Harness through the official CodeBuddy CLI.",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "author": "corrinehu",
   "keywords": [
     "dsh-plugin",

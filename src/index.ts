@@ -241,13 +241,33 @@ export interface Config {
   /**
    * How chat requests reach a model: the official CodeBuddy CLI (`cli`) or
    * WorkBuddy's HTTP gateway (`gateway`). The CLI is not rejected as an
-   * unapproved client, but it is text-only: DSH tools are unavailable.
+   * unapproved client. Off, it is text-only: DSH tools are unavailable.
    */
   transport?: 'cli' | 'gateway'
   /** CodeBuddy CLI binary used by `cli`; a path or a name searched on PATH. */
   cliPath?: string
   /** Ceiling for one headless CLI run, in milliseconds. */
   cliTimeoutMs?: number
+  /**
+   * Let the CLI run its own tool loop (commands, file edits) instead of
+   * answering text only. Execution happens inside the CLI, outside DSH's
+   * permission loop, and no DSH tool events are produced. Off by default.
+   */
+  cliTools?: boolean
+  /**
+   * Directory the CLI works in when `cliTools` is on. Without one, the CLI
+   * runs in a temp directory, because the host app's own working directory
+   * is not necessarily a project.
+   */
+  cliCwd?: string
+  /**
+   * The CLI's headless permission mode when `cliTools` is on. Defaults to
+   * `bypassPermissions`, the only mode in which a non-interactive run can
+   * actually execute tools (`dontAsk` refuses them all).
+   */
+  cliPermissionMode?: 'acceptEdits' | 'bypassPermissions' | 'default' | 'plan' | 'dontAsk' | 'auto'
+  /** Agentic-turn ceiling for one CLI run when `cliTools` is on. */
+  cliMaxTurns?: number
 }
 
 /** Explicit CN desktop auth-file path (shared by the plugin schema and its section). */
@@ -271,6 +291,14 @@ const CLI_PATH_FIELD = z.string()
   .description('CodeBuddy CLI binary path or name (defaults to codebuddy on PATH and common install locations)')
 const CLI_TIMEOUT_FIELD = z.natural().default(600_000).min(1_000)
   .description('Per-request ceiling for one headless CodeBuddy CLI run, in milliseconds')
+const CLI_TOOLS_FIELD = z.boolean().default(false)
+  .description('Let the CLI run its own tool loop (commands, file edits) instead of answering text only')
+const CLI_CWD_FIELD = z.string()
+  .description('Directory the CLI works in when cliTools is on (defaults to a temp directory)')
+const CLI_PERMISSION_MODE_FIELD = z.union(['acceptEdits', 'bypassPermissions', 'default', 'plan', 'dontAsk', 'auto']).default('bypassPermissions')
+  .description('The CLI headless permission mode when cliTools is on (defaults to bypassPermissions, the only mode a headless run can execute in)')
+const CLI_MAX_TURNS_FIELD = z.natural().default(30).min(1)
+  .description('Agentic-turn ceiling for one CodeBuddy CLI run when cliTools is on')
 
 // Same `.volatile()` typing artifact as {@link AI_SECTION}: the static
 // default type of the marked field is `Volatile<boolean>`, while consumers
@@ -284,6 +312,10 @@ export const Config = z.object({
   transport: TRANSPORT_FIELD,
   cliPath: CLI_PATH_FIELD,
   cliTimeoutMs: CLI_TIMEOUT_FIELD,
+  cliTools: CLI_TOOLS_FIELD,
+  cliCwd: CLI_CWD_FIELD,
+  cliPermissionMode: CLI_PERMISSION_MODE_FIELD,
+  cliMaxTurns: CLI_MAX_TURNS_FIELD,
 }) as unknown as z<Config>
 
 /**
@@ -590,6 +622,7 @@ async function startVariant(ctx: Context, runtime: VariantRuntime, current: () =
     return false
   }
   const cliPath = settings.cliPath?.trim()
+  const cliCwd = settings.cliCwd?.trim()
   const shim = createWorkBuddyShim({
     store,
     client,
@@ -599,6 +632,10 @@ async function startVariant(ctx: Context, runtime: VariantRuntime, current: () =
     cli: {
       ...cliPath === undefined || cliPath === '' ? {} : { binary: cliPath },
       ...settings.cliTimeoutMs === undefined ? {} : { timeoutMs: settings.cliTimeoutMs },
+      ...settings.cliTools === undefined || settings.cliTools === false ? {} : { tools: true },
+      ...cliCwd === undefined || cliCwd === '' ? {} : { cwd: cliCwd },
+      ...settings.cliPermissionMode === undefined ? {} : { permissionMode: settings.cliPermissionMode },
+      ...settings.cliMaxTurns === undefined ? {} : { maxTurns: settings.cliMaxTurns },
       logger: ctx.logger,
     },
   })
@@ -1012,6 +1049,10 @@ export function apply(ctx: Context, config: Config): void {
           ...config.transport === undefined ? {} : { transport: config.transport },
           ...config.cliPath === undefined ? {} : { cliPath: config.cliPath },
           ...config.cliTimeoutMs === undefined ? {} : { cliTimeoutMs: config.cliTimeoutMs },
+          ...config.cliTools === undefined ? {} : { cliTools: config.cliTools },
+          ...config.cliCwd === undefined ? {} : { cliCwd: config.cliCwd },
+          ...config.cliPermissionMode === undefined ? {} : { cliPermissionMode: config.cliPermissionMode },
+          ...config.cliMaxTurns === undefined ? {} : { cliMaxTurns: config.cliMaxTurns },
           ...sources.cn().authFile === undefined ? {} : { authFile: sources.cn().authFile },
           ...sources.cn().probeConsent === undefined ? {} : { probeConsent: sources.cn().probeConsent },
           ...sources.ai().authFileAI === undefined ? {} : { authFileAI: sources.ai().authFileAI },

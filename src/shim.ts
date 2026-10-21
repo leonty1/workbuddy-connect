@@ -15,13 +15,14 @@
  * @module dsh-workbuddy-connect/shim
  */
 
-import { randomBytes, timingSafeEqual } from 'node:crypto'
+import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { Readable } from 'node:stream'
 import type { WorkBuddyCredentialStore } from './auth.ts'
 import type { WorkBuddyCatalog } from './catalog.ts'
+import { flattenChatPrompt, runCodeBuddyChat, type CodeBuddyOptions } from './cli.ts'
 import { bindToUsablePort, hostIsLoopback, originIsLoopback } from './loopback.ts'
-import { extractDisplayErrorMessage, prepareChatBody, WorkBuddyUpstreamClient, type UpstreamErrorKind } from './upstream.ts'
+import { extractDisplayErrorMessage, prepareChatBody, WorkBuddyUpstreamClient, type UpstreamErrorKind, type WorkBuddyEffort } from './upstream.ts'
 
 /** Minimal logger surface the plugin context already provides. */
 export interface ShimLogger {
@@ -52,9 +53,22 @@ export interface WorkBuddyShimOptions {
   client: Pick<WorkBuddyUpstreamClient, 'chatStream'>
   catalog: WorkBuddyCatalog
   logger?: ShimLogger
+  /**
+   * How chat requests reach a model. `gateway` forwards to WorkBuddy's HTTP
+   * endpoint; `cli` runs the official CodeBuddy CLI instead, which is not
+   * subject to the unapproved-client rejection. Defaults to `gateway`.
+   */
+  transport?: 'gateway' | 'cli'
+  /** CLI binary, timeout, and working-directory settings; ignored by `gateway`. */
+  cli?: CodeBuddyOptions
 }
 
 const REQUEST_BODY_LIMIT = 64 * 1024 * 1024
+
+/** Narrow one string to an effort the model catalog can declare. */
+function isDeclaredEffort(value: string): value is WorkBuddyEffort {
+  return value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh' || value === 'max'
+}
 
 /** Chat-completion POSTs must carry a JSON body type (simple-request CSRF drops here). */
 function isJsonContentType(req: IncomingMessage): boolean {
@@ -108,6 +122,8 @@ function readBody(req: IncomingMessage): Promise<Buffer> {
 export function createWorkBuddyShim(options: WorkBuddyShimOptions): WorkBuddyShim {
   const { store, client, catalog } = options
   const logger = options.logger
+  const transport = options.transport ?? 'gateway'
+  const cliOptions = options.cli ?? {}
 
   // Per-process shared secret. Lives only in memory; the adapter resolves it
   // as the OpenAI apiKey, which pi-ai sends as `Authorization: Bearer ...`.
@@ -205,6 +221,10 @@ export function createWorkBuddyShim(options: WorkBuddyShimOptions): WorkBuddyShi
       writeOpenAIError(res, 415, 'unsupported_media_type', 'Content-Type must be application/json')
       return
     }
+    if (transport === 'cli') {
+      await chatCompletionsViaCli(req, res)
+      return
+    }
     let credential
     try {
       credential = await store.resolve()
@@ -257,6 +277,126 @@ export function createWorkBuddyShim(options: WorkBuddyShimOptions): WorkBuddyShi
       if (!sawDone && res.writable) res.end('data: [DONE]\n\n')
     })
     body.pipe(res)
+  }
+
+  /** Map a DSH reasoning effort onto a CLI effort this model declares. */
+  function cliEffort(value: unknown, model: string): WorkBuddyEffort | undefined {
+    if (typeof value !== 'string') return undefined
+    const effort = value.trim().toLowerCase()
+    if (!isDeclaredEffort(effort)) return undefined
+    const info = catalog.current().find(entry => entry.id === model)
+    return info?.reasoning?.supportedEfforts?.includes(effort) === true ? effort : undefined
+  }
+
+  /**
+   * Serve one completion by running the official CLI.
+   *
+   * The CLI carries its own sign-in, so no WorkBuddy credential is resolved
+   * here. Headers are withheld until the first content delta: a CLI failure
+   * that produces no text still surfaces as an HTTP error instead of an empty
+   * successful stream.
+   */
+  async function chatCompletionsViaCli(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    let body: unknown
+    try {
+      body = JSON.parse((await readBody(req)).toString('utf8'))
+    } catch {
+      writeOpenAIError(res, 400, 'invalid_request', 'request body must be JSON')
+      return
+    }
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      writeOpenAIError(res, 400, 'invalid_request', 'request body must be a JSON object')
+      return
+    }
+    const record = body as Record<string, unknown>
+    const model = typeof record['model'] === 'string' ? record['model'] : ''
+    if (model === '') {
+      writeOpenAIError(res, 400, 'invalid_request', 'model is required')
+      return
+    }
+    const prompt = flattenChatPrompt(record['messages'])
+    if (prompt === '') {
+      writeOpenAIError(res, 400, 'invalid_request', 'messages must contain user content')
+      return
+    }
+    const effort = cliEffort(record['reasoning_effort'], model)
+
+    const controller = new AbortController()
+    res.on('close', () => {
+      if (!res.writableEnded) controller.abort()
+    })
+
+    const id = `chatcmpl-${randomUUID()}`
+    const created = Math.floor(Date.now() / 1000)
+    let started = false
+    let finished = false
+    let sawContent = false
+
+    const ensureStream = (): void => {
+      if (started || res.writableEnded) return
+      started = true
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      })
+    }
+    const writeDelta = (delta: Record<string, unknown>): void => {
+      if (res.destroyed || res.writableEnded) return
+      ensureStream()
+      res.write(`data: ${JSON.stringify({
+        id,
+        object: 'chat.completion.chunk',
+        created,
+        model,
+        choices: [{ index: 0, delta, finish_reason: null }],
+      })}\n\n`)
+    }
+    const finish = (promptTokens: number, completionTokens: number): void => {
+      if (finished || res.destroyed || res.writableEnded) return
+      finished = true
+      ensureStream()
+      res.write(`data: ${JSON.stringify({
+        id,
+        object: 'chat.completion.chunk',
+        created,
+        model,
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+        usage: {
+          prompt_tokens: promptTokens,
+          completion_tokens: completionTokens,
+          total_tokens: promptTokens + completionTokens,
+        },
+      })}\n\n`)
+      res.write('data: [DONE]\n\n')
+      res.end()
+    }
+
+    const result = await runCodeBuddyChat(cliOptions, {
+      model,
+      prompt,
+      ...effort === undefined ? {} : { effort },
+      signal: controller.signal,
+    }, {
+      onThinking(delta) {
+        sawContent = true
+        writeDelta({ reasoning_content: delta })
+      },
+      onText(delta) {
+        sawContent = true
+        writeDelta({ content: delta })
+      },
+    })
+
+    if (result.error !== undefined && !started) {
+      writeOpenAIError(res, 502, 'cli_failed', result.error)
+      return
+    }
+    if (result.error !== undefined && sawContent) {
+      logger?.warn(`dsh-workbuddy-connect: CodeBuddy CLI failed after streaming began: ${result.error}`)
+    }
+    finish(result.promptTokens, result.completionTokens)
   }
 
   return {

@@ -116,7 +116,7 @@ async function boot(): Promise<Context> {
   await ctx.plugin(LlmRuntime)
   ctx.provide('settings', new MemorySettings())
   await ctx.plugin(FakeWebServer)
-  await ctx.plugin(WorkBuddy, {})
+  await ctx.plugin(WorkBuddy, { transport: 'gateway' })
   await vi.waitFor(() => {
     expect(ctx.llm.listProviders().map(provider => provider.id)).toContain('workbuddy')
   })

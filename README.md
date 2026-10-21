@@ -2,18 +2,21 @@
 
 [English](./README.en.md) | 中文
 
-将已登录的 WorkBuddy / WorkBuddy AI 桌面应用中可用的模型接入 DeepSeek Harness；两版分别显示各自的模型分组，并沿用各自的账号登录与积分。
+将 WorkBuddy 模型接入 DeepSeek Harness；两版分别显示各自的模型分组，并沿用各自的账号登录与积分。
+
+> **本仓库是 [corrinehu/dsh-workbuddy-connect](https://github.com/corrinehu/dsh-workbuddy-connect) 的 fork。** 0.8.0 起，国内版默认改走本机已登录的官方 CodeBuddy CLI：DSH 仍负责模型选择、推理档位和对话界面，请求由 CLI 用自己的登录态发出，不再触发 WorkBuddy 网关对未批准客户端的拦截（错误码 11128）。CLI 是文本桥——DSH 的工具调用不会传给模型，模型也无法在 DSH 里执行命令。国际版仍走原网关，因此 CLI 模式只提供国内版「WorkBuddy」分组。
 
 ## 安装
 
-**前置**：本机已安装并登录 WorkBuddy（国内版）或 WorkBuddy AI 桌面 App。插件直接复用 App 的登录状态，账号切换自动跟随，两版互不影响。
+**前置**：本机已安装并登录 WorkBuddy（国内版）桌面 App，并安装、登录官方 CodeBuddy CLI（`codebuddy` 或 `cbc`，`codebuddy -p "你好"` 能正常回答）。插件默认用 CLI 发起对话；桌面 App 的登录态只用于读取模型目录与账号信息。国际版仍需登录 WorkBuddy AI 桌面 App。
 
 **推荐：把安装交给本机已有的 Agent**——任何具备终端与文件操作能力的助手（DSH Agent、Codex、Claude Code、Cursor 等）都可以，把下面这段话原样发给它：
 
 ```text
-请帮我安装并验证 DSH（DeepSeek Harness）插件 dsh-workbuddy-connect（项目地址：https://github.com/corrinehu/dsh-workbuddy-connect）：
+请帮我安装并验证 DSH（DeepSeek Harness）插件 dsh-workbuddy-connect（项目地址：https://github.com/leonty1/workbuddy-connect）：
 先阅读项目 README，确认我实际使用的界面（Web / Desktop / TUI）与 DSH 内核版本，桌面版以 App 内置核心为准，不要用独立 CLI 的版本代替；
-再按版本对应关系从 npm 正式包安装（0.2.1-rc.2→0.7.9、0.2.1-rc.1→0.7.7、0.2.0-rc.2→0.7.6、rc.1→0.7.0、0.1.5–0.1.7→0.6.5），优先走本机受支持的非插件市场渠道；部分 Desktop 发行版（尤其官方 Electron 版）的 profile 由 App 管理，各发行版规则未必相同，先确认我所用的发行版，再探查其合规的安装方式，但不得绕过其校验；
+本 fork 面向 DSH 0.2.1-rc.2（插件 0.8.0），默认通过官方 CodeBuddy CLI 发起对话，请先确认 codebuddy 已安装并登录；
+再按版本对应关系从本仓库或本地源码安装，优先走本机受支持的非插件市场渠道；部分 Desktop 发行版（尤其官方 Electron 版）的 profile 由 App 管理，各发行版规则未必相同，先确认我所用的发行版，再探查其合规的安装方式，但不得绕过其校验；
 任何本地文件或配置改动，先征得我同意并做好备份；
 装完后验证模型选择器里出现 WorkBuddy 分组，并陪我完成一次简短对话；
 若 Desktop 安装仍因 generation 校验失败（如 @types/retry 误报），请如实报告、参照上游 dataelement/dsh-desktop#688，并建议我改用独立的 Web / TUI，不要修改依赖包或绕过校验。
@@ -23,7 +26,8 @@
 
 | DSH 内核 | 推荐插件版 |
 |---|---|
-| 0.2.1-rc.2 | 0.7.9（npm latest） |
+| 0.2.1-rc.2 | 0.8.0（本 fork，源码或本地 link 安装） |
+| 0.2.1-rc.2 | 0.7.9（上游 npm 版，仅网关） |
 | 0.2.1-rc.1 | 0.7.7 |
 | 0.2.0-rc.2 | 0.7.6 |
 | 0.2.0-rc.1 | 0.7.0 |
@@ -33,7 +37,7 @@
 <summary>手动安装（命令行，仅 Web / TUI）</summary>
 
 ```sh
-# Web（按实际内核固定版本，示例为 0.2.1-rc.2 → 0.7.9；也可用 github:corrinehu/dsh-workbuddy-connect 从源码安装）
+# Web（按实际内核固定版本；本 fork 也可用 github:leonty1/workbuddy-connect 从源码安装）
 dsh plugin --profile web add dsh-workbuddy-connect@0.7.9
 dsh web
 
@@ -52,7 +56,7 @@ dsh --profile dsh-tui
 
 ## 功能
 
-- **开箱即用**：安装并启用插件后即可在 DSH 中直接使用，无需额外配置。
+- **开箱即用**：安装并启用插件后即可在 DSH 中直接使用；除已登录的 CodeBuddy CLI 外无需额外配置。
 
 ![WorkBuddy 模型出现在 DSH 模型选择器中](assets/1.png)
 
@@ -88,6 +92,27 @@ dsh --profile dsh-tui
 
 ![设置卡片显示账号与剩余积分](assets/3.png)
 
+## CLI 传输（本 fork 默认）
+
+本 fork 在国内版新增 `transport` 配置，默认值 `cli`：
+
+```yaml
+plugins:
+  dsh-workbuddy-connect:
+    transport: cli          # cli（默认）或 gateway（上游原行为）
+    # cliPath: /Users/me/.nvm/versions/node/v22.22.2/bin/codebuddy
+    # cliTimeoutMs: 600000
+```
+
+- **独立登录**：CLI 使用自己 `~/.codebuddy` 下的登录态；桌面 App 未登录也能在 CLI 模式下使用内置模型列表。CLI 未登录时对话会失败并在会话中说明原因。
+- **不再触发 11128**：请求由官方 CLI 发出，不经过 DSH 直接调用 WorkBuddy 网关，因此不会命中网关对未批准客户端的拦截。
+- **保留模型与档位选择**：模型选择器仍显示 WorkBuddy 分组和倍率，推理档位只在模型目录明确声明时透传给 CLI（`--effort`）；未声明的模型按 CLI 默认档位运行。
+- **文本桥**：一次对话会把消息整理成一段文本交给 `codebuddy -p`，CLI 的工具执行被关闭（`--tools "" --max-turns 1`），DSH 的工具调用不会传给模型；图片以「已省略」占位，模型无法真正读图。请不要在 CLI 模式下期待工具调用或图片理解。
+- **额外开销**：CLI 每次调用会附带自己的系统提示与上下文（实测约 6k tokens），且比直连网关慢；长时间任务受 `cliTimeoutMs` 限制。
+- **回退网关**：设置 `transport: gateway` 即恢复上游行为（需要桌面 App 登录），可用于对照排查。
+
+CLI 二进制按以下顺序查找：`cliPath`（含 `/` 时视为绝对路径，写错会直接报错）→ `PATH` → `~/.nvm/versions/node/*/bin`（取最新版本）→ `~/.local/bin`、`~/.npm-global/bin`、`~/.volta/bin`、`~/.bun/bin`、`/opt/homebrew/bin`、`/usr/local/bin`。桌面应用的启动环境通常缺少 shell 的 PATH，自动查找覆盖了常见安装位置；仍找不到时请显式配置 `cliPath`。
+
 ## 推理档位为什么这样设计
 
 WorkBuddy 中模型的推理档位信息目前分散在上游接口与客户端自身的私有 UI 逻辑中，且模型目录变化很快。若插件根据经验为所有未声明模型补齐统一档位，就需要持续追赶这些未公开、没有稳定契约的产品逻辑。
@@ -118,9 +143,10 @@ dsh plugin --profile web exec dsh-workbuddy-connect doctor --provider workbuddy-
 - **加密桌面凭据的解密程序定位**：解密程序在 macOS 与 Windows 上会自动探测；Windows 上国内版先查默认路径 `%LOCALAPPDATA%\Programs\WorkBuddy\WorkBuddy.exe`，再查卸载注册表记录，国际版没有已验证的默认路径、仅查注册表。自动探测失败时，可用 `WORKBUDDY_ELECTRON_BIN`（国内版）或 `WORKBUDDY_AI_ELECTRON_BIN`（国际版）显式指定可执行文件，设置后需完全退出并重启 DSH 才生效。Linux 无法自动发现，需显式指定。WSL 下调用 Windows 侧解密程序时，插件会自动把子进程 `WSLENV` 中的 `ELECTRON_RUN_AS_NODE` 条目规范化为单一安全旗标（含 `/w` 转发、不做路径转换，其余条目原样保留），无需手动设置。此改动已通过离线回归测试，尚未完成 WSL2 / Windows 真机验证。
 - **国际版的模型目录来自 App 界面接口**：服务端按 User-Agent 分流下发，属私有实现，上游改动可能使其失效。届时插件按「本账号上次成功目录 → 内置目录」降级，并在卡片上标明来源（实时 / 已保存 / 内置）、更新时间与失败原因，但不能保证长期兼容。国内版目录走官方 CLI 同款接口，不受此影响。
 - **国际版仍未覆盖的环境**：Windows / WSL / Linux 下国际版 App 的版本读取尚未找到可靠来源，会退回最近保存的版本或内置值。macOS 上已通过真实 shim 验证 GPT 系完整回复、工具调用与续轮。
-- **无凭据时的行为变化**：某版 App 从未登录、也没留下插件自留副本时，该版模型分组不再显示。此前国内版会显示一份内置兜底列表，但那些模型选了必然报错。
+- **无凭据时的行为变化**：网关模式下，某版 App 从未登录、也没留下插件自留副本时，该版模型分组不再显示（此前国内版会显示一份内置兜底列表，但那些模型选了必然报错）。本 fork 的 CLI 模式例外：国内版不依赖桌面 App 登录，始终显示内置模型列表，能否对话取决于 CodeBuddy CLI 自己的登录态。
 - **企业账号积分目前仅覆盖国内版**：国际版企业账号的计费接口尚未验证，仍按个人版接口读取；待有实测结论后再扩展。企业账号分支在本机无法自测（开发机为个人账号），依据官方 App 的接口契约实现，欢迎企业账号用户反馈实测结果。
 - **设置入口随 DSH 版本而异**：旧版设置服务使用 `installSection`，新版使用 SettingsForms。0.7.9 在 DSH 0.2.1-rc.2 上恢复国际版「使用上游声明的最大上下文窗口」开关，默认开启；关闭后使用上游默认窗口，设置在重启后保留。只有本插件的可写设置入口就绪后才显示开关，等待期间仍使用默认的最大窗口。
+- **CLI 传输目前只在 macOS 实现**：Windows 下 CLI 通常是 npm 生成的 `.cmd` 包装脚本，Node 直接 spawn 不能执行，尚未适配与实测。Windows 用户可先用 `transport: gateway`，或等待后续版本。
 - 依赖 WorkBuddy 客户端接口（非官方开放 API），WorkBuddy 更新后插件可能需要随之调整。
 
 ## 版本兼容与历史版本
@@ -129,7 +155,8 @@ dsh plugin --profile web exec dsh-workbuddy-connect doctor --provider workbuddy-
 
 | DSH 内核 | 推荐插件版 | 注意事项 |
 |---|---|---|
-| `0.2.1-rc.2` | `0.7.9` | 仅适配这一内核；`0.2.0-rc.2` 与 `0.2.1-rc.2` 不同，请核对 App 内置版本。 |
+| `0.2.1-rc.2` | `0.8.0` | 本 fork；国内版默认走 CodeBuddy CLI，不发布到 npm，用本仓库源码或本地 `link:` 安装。 |
+| `0.2.1-rc.2` | `0.7.9` | 上游 npm 版；仅网关。 |
 | `0.2.1-rc.1` | `0.7.7` | 内核升级到 `@earendil-works/pi-ai` 1.3.0，插件同步自带 1.3.0，历史遗留的 0.87.1 overrides 必须移除（见下方 pi-ai 说明）。 |
 | `0.2.0-rc.2` | `0.7.6` | 上一代内核线；修复企业账号模型目录缺项与国际版对话被渠道校验拦截，勿停留在有注册表回归的 0.7.2。 |
 | `0.2.0-rc.1` | `0.7.0` | 0.7.1 起不再支持 rc.1，请停留本版。 |
@@ -137,7 +164,9 @@ dsh plugin --profile web exec dsh-workbuddy-connect doctor --provider workbuddy-
 | `0.1.2-rc.1` | `0.3.1` | 更早旧线，仅历史维护。 |
 | `0.1.1-rc.2` | `0.2.6` | 更早旧线，仅历史维护。 |
 
-历次更新（完整记录见 [releases](https://github.com/corrinehu/dsh-workbuddy-connect/releases)）：
+历次更新（0.7.x 及更早的完整记录见上游 [releases](https://github.com/corrinehu/dsh-workbuddy-connect/releases)）：
+
+- **0.8.0**（本 fork）：新增 `transport: cli`（默认），国内版对话改由官方 CodeBuddy CLI 以自身登录态发出，避开 WorkBuddy 网关对未批准客户端的拦截；保留模型选择与推理档位透传；CLI 模式只注册国内版分组；`cliPath` / `cliTimeoutMs` 可配置，`transport: gateway` 可回退。CLI 为文本桥，DSH 工具与图片不参与对话。修复 legacy 设置模式下合并配置时丢失 `transport` 的问题。
 
 - **0.7.9**：恢复 DSH 0.2.1-rc.2 上国际版最大上下文窗口开关，修复延迟初始化及设置持久化（PR [#172](https://github.com/corrinehu/dsh-workbuddy-connect/pull/172)，by @1Dreamer666）；避免本地服务绑定到 fetch 禁用端口导致国际版 502（PR [#164](https://github.com/corrinehu/dsh-workbuddy-connect/pull/164)，by @Xiong-Ziyi）；同名积分包合并展示，减少重复条目。
 - **0.7.8**：适配 DSH 0.2.1-rc.2；将官方原子写入工具打包到插件，避免依赖宿主暴露该模块；更新国内模型目录快照，区分 Hy3 / Hy3-X；优化推理检测结果展示，调整积分刷新按钮位置并修正悬停提示。感谢 @chenpiyanghappy 的 PR [#156](https://github.com/corrinehu/dsh-workbuddy-connect/pull/156)。
@@ -151,7 +180,7 @@ dsh plugin --profile web exec dsh-workbuddy-connect doctor --provider workbuddy-
 - **0.7.0**：适配 DSH 0.2.0 的设置服务改造，不再支持 0.1.x。
 - **0.6.5**：0.1.x 线最终版本。
 
-固定版本安装示例：`dsh plugin --profile web add dsh-workbuddy-connect@0.7.9`。
+固定版本安装示例：上游 npm 版 `dsh plugin --profile web add dsh-workbuddy-connect@0.7.9`；本 fork 用 `dsh plugin --profile web add /path/to/workbuddy-connect`（本地源码）或 `dsh plugin --profile web add github:leonty1/workbuddy-connect`。
 
 **pi-ai 版本按内核线区分，不能混**：0.2.1-rc.1 / rc.2 内核线（分别对应插件 0.7.7 / 0.7.8–0.7.9）已升级到 `@earendil-works/pi-ai` 1.3.0（由插件自带），profile 级历史遗留的 `overrides: {'@earendil-works/pi-ai': '0.87.1'}` **必须移除**，否则插件会因加载到旧一代 pi-ai 而启动失败；0.2.0-rc.2 内核线（插件 0.7.6）仍要求 `^0.87.1`，在这条线上**不要**把 profile 级的 pi-ai 升到 1.x，第三方插件管理器的「可更新」提示不校验 peer 约束、不能照做（[#86](https://github.com/corrinehu/dsh-workbuddy-connect/issues/86)）。
 
@@ -172,6 +201,7 @@ dsh plugin --profile web exec dsh-workbuddy-connect doctor --provider workbuddy-
 
 ## 致谢
 
+- [corrinehu/dsh-workbuddy-connect](https://github.com/corrinehu/dsh-workbuddy-connect)（MIT）— 本 fork 的上游项目，提供模型目录、账号、设置与客户端 UI。
 - [Sliverkiss/workbuddy2api](https://github.com/Sliverkiss/workbuddy2api)（MIT）— WorkBuddy 上游协议的参照实现。
 - [franksong2702/dsh-codex-connect](https://github.com/franksong2702/dsh-codex-connect)（Apache-2.0）— DSH 插件结构与 provider 注册的参照。
 

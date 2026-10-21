@@ -238,6 +238,16 @@ export interface Config {
   probeConsent?: boolean
   /** Use the largest context window the international catalog explicitly offers. */
   useMaximumContextWindow?: boolean
+  /**
+   * How chat requests reach a model: the official CodeBuddy CLI (`cli`) or
+   * WorkBuddy's HTTP gateway (`gateway`). The CLI is not rejected as an
+   * unapproved client, but it is text-only: DSH tools are unavailable.
+   */
+  transport?: 'cli' | 'gateway'
+  /** CodeBuddy CLI binary used by `cli`; a path or a name searched on PATH. */
+  cliPath?: string
+  /** Ceiling for one headless CLI run, in milliseconds. */
+  cliTimeoutMs?: number
 }
 
 /** Explicit CN desktop auth-file path (shared by the plugin schema and its section). */
@@ -255,6 +265,12 @@ const PROBE_CONSENT_FIELD = z.boolean().default(false)
 // {@link plainConfigBoolean} below.
 const MAXIMUM_CONTEXT_WINDOW_FIELD = z.boolean().default(true).volatile()
   .description('Use the largest context window declared by WorkBuddy AI when alternatives are available (on by default)')
+const TRANSPORT_FIELD = z.union(['cli', 'gateway']).default('cli')
+  .description('Use the official CodeBuddy CLI (text-only, not rejected as an unapproved client) or the WorkBuddy HTTP gateway')
+const CLI_PATH_FIELD = z.string()
+  .description('CodeBuddy CLI binary path or name (defaults to codebuddy on PATH and common install locations)')
+const CLI_TIMEOUT_FIELD = z.natural().default(600_000).min(1_000)
+  .description('Per-request ceiling for one headless CodeBuddy CLI run, in milliseconds')
 
 // Same `.volatile()` typing artifact as {@link AI_SECTION}: the static
 // default type of the marked field is `Volatile<boolean>`, while consumers
@@ -265,6 +281,9 @@ export const Config = z.object({
   authFileAI: AUTH_FILE_AI_FIELD,
   probeConsent: PROBE_CONSENT_FIELD,
   useMaximumContextWindow: MAXIMUM_CONTEXT_WINDOW_FIELD,
+  transport: TRANSPORT_FIELD,
+  cliPath: CLI_PATH_FIELD,
+  cliTimeoutMs: CLI_TIMEOUT_FIELD,
 }) as unknown as z<Config>
 
 /**
@@ -559,9 +578,30 @@ function probeSection(runtime: VariantRuntime, consent: boolean): WorkBuddyWebPr
  *
  * @returns whether the provider registered.
  */
-async function startVariant(ctx: Context, runtime: VariantRuntime): Promise<boolean> {
+async function startVariant(ctx: Context, runtime: VariantRuntime, current: () => Config): Promise<boolean> {
   const { variant, store, client, catalog, probeService } = runtime
-  const shim = createWorkBuddyShim({ store, client, catalog, logger: ctx.logger })
+  const settings = current()
+  const transport = settings.transport ?? 'cli'
+  if (transport === 'cli' && variant.id !== CN_VARIANT.id) {
+    // The CLI's roster is the CN product's model list; the international ids
+    // (`default-model`, `fast-model`, …) have no CLI equivalent, so serving
+    // that group here would offer models every request must reject.
+    ctx.logger.warn(`dsh-workbuddy-connect: the CLI transport serves the CN roster only; skipping ${variant.displayName}`)
+    return false
+  }
+  const cliPath = settings.cliPath?.trim()
+  const shim = createWorkBuddyShim({
+    store,
+    client,
+    catalog,
+    logger: ctx.logger,
+    transport,
+    cli: {
+      ...cliPath === undefined || cliPath === '' ? {} : { binary: cliPath },
+      ...settings.cliTimeoutMs === undefined ? {} : { timeoutMs: settings.cliTimeoutMs },
+      logger: ctx.logger,
+    },
+  })
   try {
     await shim.ready
   } catch (error: unknown) {
@@ -658,6 +698,13 @@ export function apply(ctx: Context, config: Config): void {
   // probe consent gate without a restart.
   let current = (): Config => config
 
+  /**
+   * Whether chat runs through the official CLI, which carries its own sign-in.
+   * The desktop app's credential is then only a catalog source, never a
+   * prerequisite for serving models.
+   */
+  const cliTransport = (): boolean => (current().transport ?? 'cli') === 'cli'
+
   /** Timers and in-flight work belonging to this plugin instance. */
   let stopped = false
   const timers: NodeJS.Timeout[] = []
@@ -736,7 +783,17 @@ export function apply(ctx: Context, config: Config): void {
   const adoptIdentity = (runtime: VariantRuntime, identity: string | undefined, account: string | undefined): void => {
     const id = runtime.variant.id
     const known = lastIdentities.get(id)
-    if (known === identity) return
+    if (known === identity) {
+      // A CLI-served variant is usable without the desktop app's sign-in, so
+      // the "never seen, still signed out" state must show the fallback roster
+      // instead of leaving the group hidden.
+      if (identity === undefined && cliTransport()) {
+        runtime.catalog.set(runtime.fallback)
+        runtime.catalogSource = 'fallback'
+        if (runtime.catalog.setVisible(true)) runtime.invalidate()
+      }
+      return
+    }
     const hadCredential = known !== undefined
     if (identity === undefined) lastIdentities.delete(id)
     else lastIdentities.set(id, identity)
@@ -752,18 +809,16 @@ export function apply(ctx: Context, config: Config): void {
       runtime.invalidate()
     }
     if (identity === undefined) {
-      // Signed out: hide the group, and drop the models so they are not left
-      // registered-but-invisible if visibility ever flips back. The signed-out
-      // account's saved catalog is forgotten as well — it is that account's
-      // data, and it is keyed by identity so nothing else can serve it, but
-      // keeping it would only be useful if that same account returned, and the
-      // file is not a place to accumulate departed accounts' catalogs.
+      // Signed out: drop the account's saved catalog in both transports — it
+      // belongs to that account and nothing else may serve it.
       if (known !== undefined) runtime.savedCatalogs.delete(known)
       runtime.catalog.set(runtime.fallback)
       runtime.catalogSource = 'fallback'
       runtime.catalogFetchedAtMs = undefined
       runtime.catalogError = undefined
-      if (runtime.catalog.setVisible(false)) runtime.invalidate()
+      // The gateway needs the desktop sign-in, so a signed-out group is hidden.
+      // The CLI carries its own sign-in and still serves this roster.
+      if (runtime.catalog.setVisible(cliTransport())) runtime.invalidate()
       return
     }
     // Serve this account's best-known catalog until a fetch lands. The saved
@@ -952,6 +1007,11 @@ export function apply(ctx: Context, config: Config): void {
         // plain boolean so downstream comparisons keep working.
         const aiMaximum = plainConfigBoolean(sources.ai().useMaximumContextWindow)
         return {
+          // Neither section owns the transport: it stays whatever the profile
+          // applied, or the schema default when the profile set nothing.
+          ...config.transport === undefined ? {} : { transport: config.transport },
+          ...config.cliPath === undefined ? {} : { cliPath: config.cliPath },
+          ...config.cliTimeoutMs === undefined ? {} : { cliTimeoutMs: config.cliTimeoutMs },
           ...sources.cn().authFile === undefined ? {} : { authFile: sources.cn().authFile },
           ...sources.cn().probeConsent === undefined ? {} : { probeConsent: sources.cn().probeConsent },
           ...sources.ai().authFileAI === undefined ? {} : { authFileAI: sources.ai().authFileAI },
@@ -1287,7 +1347,7 @@ export function apply(ctx: Context, config: Config): void {
     for (const runtime of runtimes) await syncVariant(runtime)
   }
 
-  void Promise.all(runtimes.map(async runtime => startVariant(ctx, runtime))).then(() => {
+  void Promise.all(runtimes.map(async runtime => startVariant(ctx, runtime, current))).then(() => {
     if (stopped) return
     // The host bundle is live: write a heartbeat so the status CLI can report
     // host health without a browser. Cleared on disposal; a stale heartbeat

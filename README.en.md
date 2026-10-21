@@ -2,18 +2,21 @@
 
 English | [中文](./README.md)
 
-Brings the models available in your signed-in WorkBuddy / WorkBuddy AI desktop app into [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness); the two versions each show their own model group and reuse their own account sign-in and credit.
+Brings WorkBuddy models into [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness); the two versions each show their own model group and reuse their own account sign-in and credit.
+
+> **This repository is a fork of [corrinehu/dsh-workbuddy-connect](https://github.com/corrinehu/dsh-workbuddy-connect).** Since 0.8.0, the CN version runs through the official CodeBuddy CLI that is already signed in on this machine: DSH still owns model selection, reasoning levels, and the chat UI, while the CLI sends each request under its own sign-in, so WorkBuddy's gateway no longer rejects the call as an unapproved client (error 11128). The CLI is a text bridge — DSH tool calls never reach the model, and the model cannot run commands inside DSH. The international version still uses the gateway, so CLI mode serves only the CN "WorkBuddy" group.
 
 ## Install
 
-**Prerequisite**: the WorkBuddy (CN) or WorkBuddy AI desktop app is installed and signed in on this machine. The plugin reuses the app's sign-in state and follows account switches automatically; the two never affect each other.
+**Prerequisite**: the WorkBuddy (CN) desktop app is installed and signed in on this machine, and the official CodeBuddy CLI (`codebuddy` or `cbc`) is installed and signed in (`codebuddy -p "hello"` answers normally). The plugin uses the CLI for chat by default; the desktop app's sign-in only supplies the model catalog and account details. The international version still requires the WorkBuddy AI desktop app.
 
 **Recommended: let an Agent you already have do the install** — any assistant with terminal and file access (the DSH agent, Codex, Claude Code, Cursor, …). Paste this to it verbatim:
 
 ```text
-Please install and verify the DSH (DeepSeek Harness) plugin dsh-workbuddy-connect for me (project: https://github.com/corrinehu/dsh-workbuddy-connect).
+Please install and verify the DSH (DeepSeek Harness) plugin dsh-workbuddy-connect for me (project: https://github.com/leonty1/workbuddy-connect).
 Start by reading the project README and confirming which interface I actually use (Web / Desktop / TUI) and its DSH core version — for the Desktop app, the bundled core, never the standalone CLI's version.
-Then install from the official npm package per the version mapping (0.2.1-rc.2 -> 0.7.9, 0.2.1-rc.1 -> 0.7.7, 0.2.0-rc.2 -> 0.7.6, rc.1 -> 0.7.0, 0.1.5-0.1.7 -> 0.6.5), preferring a locally supported non-market channel; on some Desktop distributions (the official Electron app in particular) the profile is app-managed and rules vary by distribution — check mine first, then explore its compliant install route, but never bypass its validation.
+This fork targets DSH 0.2.1-rc.2 (plugin 0.8.0) and sends chat through the official CodeBuddy CLI by default; check that codebuddy is installed and signed in first.
+Then install from this repository or local source, preferring a locally supported non-market channel; on some Desktop distributions (the official Electron app in particular) the profile is app-managed and rules vary by distribution — check mine first, then explore its compliant install route, but never bypass its validation.
 Ask for my consent and make backups before changing any local files or configuration.
 After installing, verify the WorkBuddy group appears in the model picker and walk me through one short conversation.
 If the Desktop install still fails generation validation (e.g. the @types/retry false positive), report it honestly, reference upstream dataelement/dsh-desktop#688, and suggest switching to the standalone Web / TUI — do not modify dependency packages or bypass the check.
@@ -23,7 +26,8 @@ Core-to-plugin quick reference (full table in "Compatibility and release history
 
 | DSH core | Recommended plugin |
 |---|---|
-| 0.2.1-rc.2 | 0.7.9 (npm latest) |
+| 0.2.1-rc.2 | 0.8.0 (this fork, source or local link install) |
+| 0.2.1-rc.2 | 0.7.9 (upstream npm, gateway only) |
 | 0.2.1-rc.1 | 0.7.7 |
 | 0.2.0-rc.2 | 0.7.6 |
 | 0.2.0-rc.1 | 0.7.0 |
@@ -33,7 +37,7 @@ Core-to-plugin quick reference (full table in "Compatibility and release history
 <summary>Manual install (command line, Web / TUI only)</summary>
 
 ```sh
-# Web (pin per your actual core — example: 0.2.1-rc.2 -> 0.7.9; or install from source via github:corrinehu/dsh-workbuddy-connect)
+# Web (pin per your actual core; this fork can also be installed from source via github:leonty1/workbuddy-connect)
 dsh plugin --profile web add dsh-workbuddy-connect@0.7.9
 dsh web
 
@@ -52,7 +56,7 @@ dsh --profile dsh-tui
 
 ## Features
 
-- **Works out of the box**: install and enable the plugin, then use it directly in DSH — no extra configuration.
+- **Works out of the box**: install and enable the plugin, then use it directly in DSH — no extra configuration beyond a signed-in CodeBuddy CLI.
 
 ![WorkBuddy models in the DSH model picker](assets/1.png)
 
@@ -88,6 +92,27 @@ The expanded card has three tabs: Status shows the account, token validity, tota
 
 ![Settings card showing account and remaining credit](assets/3.png)
 
+## CLI transport (this fork's default)
+
+This fork adds a `transport` setting to the CN version, defaulting to `cli`:
+
+```yaml
+plugins:
+  dsh-workbuddy-connect:
+    transport: cli          # cli (default) or gateway (upstream behaviour)
+    # cliPath: /Users/me/.nvm/versions/node/v22.22.2/bin/codebuddy
+    # cliTimeoutMs: 600000
+```
+
+- **Independent sign-in**: the CLI uses its own sign-in under `~/.codebuddy`; the CN group is available in CLI mode even when the desktop app is signed out. If the CLI itself is signed out, a chat fails with an explanation in the conversation.
+- **No more 11128**: requests are sent by the official CLI rather than DSH calling the WorkBuddy gateway directly, so the gateway's unapproved-client check is not triggered.
+- **Model and reasoning selection stay**: the picker still lists the WorkBuddy group and credit multipliers, and a reasoning effort is forwarded (`--effort`) only when the model's catalog entry declares it; other models run at the CLI default.
+- **Text bridge**: each turn flattens the conversation into one text prompt for `codebuddy -p`. CLI tool execution is disabled (`--tools "" --max-turns 1`) and DSH tool calls are not passed through; images become an "omitted" placeholder and the model cannot actually read them. Do not expect tool use or image understanding in CLI mode.
+- **Extra overhead**: every CLI call carries the CLI's own system prompt and context (about 6k tokens measured) and is slower than the direct gateway; a long turn is bounded by `cliTimeoutMs`.
+- **Fallback to the gateway**: set `transport: gateway` to restore upstream behaviour (requires the desktop app's sign-in), useful for comparison and diagnosis.
+
+The CLI binary is resolved in this order: `cliPath` (a value containing `/` is authoritative and a wrong path fails loudly) → `PATH` → `~/.nvm/versions/node/*/bin` (newest version) → `~/.local/bin`, `~/.npm-global/bin`, `~/.volta/bin`, `~/.bun/bin`, `/opt/homebrew/bin`, `/usr/local/bin`. A desktop app often launches with a minimal PATH, so common install locations are searched automatically; if the binary still cannot be found, set `cliPath` explicitly.
+
 ## Why reasoning levels work this way
 
 Information about WorkBuddy models' reasoning levels is currently split between upstream API responses and private UI logic in the client, while the model catalog changes quickly. If the plugin filled in one uniform set of levels for every model without an upstream declaration, it would need to keep chasing unpublished product logic with no stable contract.
@@ -117,9 +142,10 @@ dsh plugin --profile web exec dsh-workbuddy-connect doctor --provider workbuddy-
 - **Encrypted desktop credential helper discovery**: the helper is auto-detected on macOS and Windows; on Windows the CN app checks the default path `%LOCALAPPDATA%\Programs\WorkBuddy\WorkBuddy.exe` first and then the uninstall registry records, while the international app has no verified default path and checks the registry only. If auto-detection fails, set `WORKBUDDY_ELECTRON_BIN` (CN) or `WORKBUDDY_AI_ELECTRON_BIN` (international) to the executable explicitly, then fully quit and restart DSH for the change to take effect. Linux has no auto-discovery; an explicit environment variable is required. When WSL invokes the Windows-side helper, the plugin automatically normalizes the `ELECTRON_RUN_AS_NODE` entry in the child's `WSLENV` to a single safe flag set (carrying `/w` for forwarding, with no path translation; all other entries are preserved) — no manual `WSLENV` setup is needed. This change has passed offline regression tests; real WSL2 / Windows verification remains outstanding.
 - **The international version's model catalog comes from the app's own interface**: the service splits it by User-Agent, which is a private implementation detail that a server-side change can break. When that happens the plugin degrades to this account's last successful catalog and then to its built-in roster, showing the source (live / saved / built-in), the fetch time, and the failure reason on the card — but long-term compatibility is not guaranteed. The CN version's catalog uses the same interface as the official CLI and is unaffected.
 - **International-version environments not yet covered**: on Windows / WSL / Linux no reliable source for the international app's version has been located yet, so the saved value or the built-in default is used. On macOS, real-shim checks covered complete GPT-family replies, tool calls, and continued turns.
-- **Behaviour change with no credentials**: a version whose app was never signed in — and that left no plugin-owned copy — no longer shows a model group. The CN version used to display a built-in fallback list, but every model on it failed when selected.
+- **Behaviour change with no credentials**: in gateway mode, a version whose app was never signed in — and that left no plugin-owned copy — no longer shows a model group (the CN version used to display a built-in fallback list, but every model on it failed when selected). CLI mode is the exception: the CN group does not depend on the desktop app's sign-in and always shows the built-in roster; whether a chat works depends on the CodeBuddy CLI's own sign-in.
 - **The enterprise credit path currently covers the CN product only**: the international enterprise billing interface is unverified, so those accounts still read through the personal endpoint pending measurement. The enterprise branch could not be tested locally (the development machine holds a personal account); it was implemented from the official app's interface contract, and reports from enterprise users are welcome.
 - **Settings entries vary with the DSH version**: older services use `installSection`; newer ones use SettingsForms. On DSH 0.2.1-rc.2, 0.7.9 restores the international edition's maximum-context switch, enabled by default. Turning it off uses the upstream default window, and the preference survives restarts. The switch appears only once this plugin's writable settings entry is ready; while waiting, the maximum window remains the default.
+- **CLI transport is implemented for macOS only**: on Windows the CLI is usually an npm-generated `.cmd` shim, which Node cannot spawn directly; that path is neither adapted nor tested. Windows users can stay on `transport: gateway` until a later release.
 - Relies on WorkBuddy client interfaces (not a public API); the plugin may need updates as WorkBuddy changes.
 
 ## Compatibility and release history
@@ -128,7 +154,8 @@ The plugin version must match the DSH core — a mismatched combination fails to
 
 | DSH core | Recommended plugin | Notes |
 |---|---|---|
-| `0.2.1-rc.2` | `0.7.9` | Targets this core only; `0.2.0-rc.2` and `0.2.1-rc.2` differ. Check the core bundled in your Desktop app. |
+| `0.2.1-rc.2` | `0.8.0` | This fork; CN chat runs through the CodeBuddy CLI by default. Not published to npm — install from this repository or a local `link:`. |
+| `0.2.1-rc.2` | `0.7.9` | Upstream npm release; gateway only. |
 | `0.2.1-rc.1` | `0.7.7` | The core moved to `@earendil-works/pi-ai` 1.3.0, so the plugin bundles 1.3.0 too — a leftover 0.87.1 overrides entry must be removed (see the pi-ai note below). |
 | `0.2.0-rc.2` | `0.7.6` | Previous core line; fixes enterprise catalog gaps and international chat requests blocked by the upstream channel check. Avoid 0.7.2 with its registry regression. |
 | `0.2.0-rc.1` | `0.7.0` | 0.7.1 drops rc.1 support; stay on this version. |
@@ -136,8 +163,9 @@ The plugin version must match the DSH core — a mismatched combination fails to
 | `0.1.2-rc.1` | `0.3.1` | Older line, historical maintenance only. |
 | `0.1.1-rc.2` | `0.2.6` | Older line, historical maintenance only. |
 
-Release history (full records at [releases](https://github.com/corrinehu/dsh-workbuddy-connect/releases)):
+Release history (full 0.7.x and earlier records at the upstream [releases](https://github.com/corrinehu/dsh-workbuddy-connect/releases)):
 
+- **0.8.0** (this fork): adds `transport: cli` (default) so CN chat runs through the official CodeBuddy CLI under its own sign-in, avoiding the WorkBuddy gateway's unapproved-client rejection; keeps model selection and reasoning-effort forwarding; CLI mode registers the CN group only; `cliPath` / `cliTimeoutMs` are configurable and `transport: gateway` falls back. The CLI is a text bridge, so DSH tools and images never reach the model. Also fixes the legacy settings path dropping `transport` when merging section config.
 - **0.7.9**: restores the international edition's maximum-context switch on DSH 0.2.1-rc.2, including delayed initialization and persistent settings (PR [#172](https://github.com/corrinehu/dsh-workbuddy-connect/pull/172), by @1Dreamer666); avoids fetch-blocked local ports that could cause international-edition 502 errors (PR [#164](https://github.com/corrinehu/dsh-workbuddy-connect/pull/164), by @Xiong-Ziyi); combines credit packages with the same name to reduce repeated entries.
 - **0.7.8**: adapts to DSH 0.2.1-rc.2; bundles the official atomic-write helper instead of relying on host module exposure; refreshes the China catalog snapshot and distinguishes Hy3 / Hy3-X; improves probe result labels and fixes the credit-refresh placement and tooltip. Thanks to @chenpiyanghappy for PR [#156](https://github.com/corrinehu/dsh-workbuddy-connect/pull/156).
 - **0.7.7**: adapts to the DSH 0.2.1-rc.1 core: peers narrow to 0.2.1-rc.1 and the plugin-bundled `@earendil-works/pi-ai` moves to 1.3.0 with it (a profile-level leftover 0.87.1 overrides entry must be removed, or the plugin fails to load).
@@ -150,7 +178,7 @@ Release history (full records at [releases](https://github.com/corrinehu/dsh-wor
 - **0.7.0**: adapts to DSH 0.2.0's settings-service rework and drops 0.1.x support.
 - **0.6.5**: final release of the 0.1.x line.
 
-Pinned-version install example: `dsh plugin --profile web add dsh-workbuddy-connect@0.7.9`.
+Pinned-version install example: upstream npm `dsh plugin --profile web add dsh-workbuddy-connect@0.7.9`; this fork `dsh plugin --profile web add /path/to/workbuddy-connect` (local source) or `dsh plugin --profile web add github:leonty1/workbuddy-connect`.
 
 **pi-ai versions are per core line and must not be mixed**: the 0.2.1-rc.1 / rc.2 core lines (plugin 0.7.7 / 0.7.8–0.7.9 respectively) moved to `@earendil-works/pi-ai` 1.3.0 (bundled by the plugin), so a profile-level leftover `overrides: {'@earendil-works/pi-ai': '0.87.1'}` **must be removed** or the plugin fails to load; the 0.2.0-rc.2 core line (plugin 0.7.6) still requires `^0.87.1` — on that line, **do not** upgrade the profile-level pi-ai to 1.x, and do not act on third-party plugin managers' "updatable" prompts, which do not check peer constraints ([#86](https://github.com/corrinehu/dsh-workbuddy-connect/issues/86)).
 
@@ -171,6 +199,7 @@ See each project's documentation for supported versions and installation require
 
 ## Acknowledgements
 
+- [corrinehu/dsh-workbuddy-connect](https://github.com/corrinehu/dsh-workbuddy-connect) (MIT) — the upstream project this fork is based on, providing the model catalog, account, settings, and client UI.
 - [Sliverkiss/workbuddy2api](https://github.com/Sliverkiss/workbuddy2api) (MIT) — reference implementation of the WorkBuddy upstream protocol.
 - [franksong2702/dsh-codex-connect](https://github.com/franksong2702/dsh-codex-connect) (Apache-2.0) — reference for the DSH plugin structure and provider registration.
 

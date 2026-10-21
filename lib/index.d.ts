@@ -1318,6 +1318,34 @@ declare class WorkBuddyProbeStore {
   private persist;
 }
 //#endregion
+//#region src/cli.d.ts
+/**
+ * Text bridge to the official CodeBuddy CLI.
+ *
+ * WorkBuddy's gateway rejects requests from unapproved clients (code 11128),
+ * and a DSH request is one. The CLI is the vendor's own client, so it carries
+ * the same conversation without that rejection. It is a text-only transport:
+ * built-in tools stay disabled and the bridge prompt forbids claiming that any
+ * action ran. Each DSH turn becomes one headless CLI run.
+ *
+ * @module dsh-workbuddy-connect/cli
+ */
+/** Minimal logger surface shared with the shim. */
+interface CodeBuddyLogger {
+  warn(...args: unknown[]): void;
+  error(...args: unknown[]): void;
+}
+/** CLI process settings, resolved from the plugin configuration. */
+interface CodeBuddyOptions {
+  /** Binary name or absolute path; defaults to `codebuddy`. */
+  binary?: string;
+  /** Per-request ceiling in milliseconds; defaults to ten minutes. */
+  timeoutMs?: number;
+  /** Working directory for the CLI process; defaults to the OS temp directory. */
+  cwd?: string;
+  logger?: CodeBuddyLogger;
+}
+//#endregion
 //#region src/shim.d.ts
 /** Minimal logger surface the plugin context already provides. */
 interface ShimLogger {
@@ -1346,6 +1374,14 @@ interface WorkBuddyShimOptions {
   client: Pick<WorkBuddyUpstreamClient, 'chatStream'>;
   catalog: WorkBuddyCatalog;
   logger?: ShimLogger;
+  /**
+   * How chat requests reach a model. `gateway` forwards to WorkBuddy's HTTP
+   * endpoint; `cli` runs the official CodeBuddy CLI instead, which is not
+   * subject to the unapproved-client rejection. Defaults to `gateway`.
+   */
+  transport?: 'gateway' | 'cli';
+  /** CLI binary, timeout, and working-directory settings; ignored by `gateway`. */
+  cli?: CodeBuddyOptions;
 }
 /**
  * Start the loopback endpoint. Requests carry any bearer; the loopback bind
@@ -1711,6 +1747,16 @@ interface Config {
   probeConsent?: boolean;
   /** Use the largest context window the international catalog explicitly offers. */
   useMaximumContextWindow?: boolean;
+  /**
+   * How chat requests reach a model: the official CodeBuddy CLI (`cli`) or
+   * WorkBuddy's HTTP gateway (`gateway`). The CLI is not rejected as an
+   * unapproved client, but it is text-only: DSH tools are unavailable.
+   */
+  transport?: 'cli' | 'gateway';
+  /** CodeBuddy CLI binary used by `cli`; a path or a name searched on PATH. */
+  cliPath?: string;
+  /** Ceiling for one headless CLI run, in milliseconds. */
+  cliTimeoutMs?: number;
 }
 declare const Config: z<Config>;
 /**

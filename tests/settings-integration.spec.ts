@@ -137,7 +137,7 @@ describe('WorkBuddy Host settings integration', () => {
       await ctx.plugin(LlmRuntime)
       settings = new FileSettings()
       ctx.provide('settings', settings)
-      await ctx.plugin(WorkBuddy, {})
+      await ctx.plugin(WorkBuddy, { transport: 'gateway' })
       await vi.waitFor(async () => {
         expect((await ctx.llm.listModels('workbuddy-ai')).length).toBeGreaterThan(0)
       })
@@ -186,7 +186,7 @@ describe('WorkBuddy Host settings integration', () => {
     context = ctx
     await ctx.plugin(LlmRuntime)
     ctx.provide('settings', new MemorySettings())
-    await ctx.plugin(WorkBuddy, {})
+    await ctx.plugin(WorkBuddy, { transport: 'gateway' })
 
     // Registration rides on the loopback shim's listening event — but
     // registration alone does not populate the model list: each variant's
@@ -299,7 +299,7 @@ describe('WorkBuddy Host settings integration', () => {
     context = ctx
     await ctx.plugin(LlmRuntime)
     ctx.provide('settings', new MemorySettings())
-    await ctx.plugin(WorkBuddy, {})
+    await ctx.plugin(WorkBuddy, { transport: 'gateway' })
 
     await vi.waitFor(() => {
       expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(
@@ -435,7 +435,7 @@ describe('WorkBuddy Host settings integration', () => {
     context = ctx
     await ctx.plugin(LlmRuntime)
     ctx.provide('settings', new MemorySettings())
-    await ctx.plugin(WorkBuddy, {})
+    await ctx.plugin(WorkBuddy, { transport: 'gateway' })
 
     await vi.waitFor(() => {
       expect(ctx.llm.listProviders().map(provider => provider.id)).toContain('workbuddy')
@@ -472,7 +472,7 @@ describe('WorkBuddy Host settings integration', () => {
     context = ctx
     await ctx.plugin(LlmRuntime)
     ctx.provide('settings', new MemorySettings())
-    await ctx.plugin(WorkBuddy, {})
+    await ctx.plugin(WorkBuddy, { transport: 'gateway' })
 
     const models = await (async () => {
       await vi.waitFor(() => {
@@ -507,7 +507,7 @@ describe('WorkBuddy Host settings integration', () => {
     // (`installSection` is a prototype method on this provider, so a plain
     // assignment — not `delete` — is what hides it.)
     ;(ctx.settings as unknown as Record<string, unknown>)['installSection'] = undefined
-    await ctx.plugin(WorkBuddy, {})
+    await ctx.plugin(WorkBuddy, { transport: 'gateway' })
 
     // Both providers still register and the signed-in AI variant still serves
     // its fallback catalog.
@@ -573,7 +573,7 @@ describe('WorkBuddy Host settings integration', () => {
     await ctx.plugin(LlmRuntime)
     ctx.provide('settings', new MemorySettings())
     ctx.provide('attachments', attachmentStore as never)
-    await ctx.plugin(WorkBuddy, {})
+    await ctx.plugin(WorkBuddy, { transport: 'gateway' })
     // Provider registration is NOT sufficient here: a variant's catalog starts
     // hidden until the credential sweep adopts an identity, so `glm-5.3` is
     // unresolvable right after registration and pi-ai's stream converts that
@@ -696,7 +696,7 @@ describe('WorkBuddy Host settings integration', () => {
     ctx.provide('attachments', attachmentStore as never)
     // The fs service is present — it just cannot map this host path.
     ctx.provide('fs', { processPathFromHostPath: () => undefined } as never)
-    await ctx.plugin(WorkBuddy, {})
+    await ctx.plugin(WorkBuddy, { transport: 'gateway' })
     // Registration is not enough — see the comment above: until the credential
     // sweep reveals this variant's catalog, `glm-5.3` does not resolve and the
     // stream ends with zero iterations and no error, sending nothing at all.
@@ -760,7 +760,7 @@ describe('WorkBuddy Host settings integration', () => {
     await ctx.plugin(LlmRuntime)
     ctx.provide('settings', forms as never)
     await ctx.plugin(FakeWebServer)
-    await ctx.plugin(WorkBuddy, {})
+    await ctx.plugin(WorkBuddy, { transport: 'gateway' })
 
     await vi.waitFor(async () => {
       expect((await ctx.llm.listModels('workbuddy-ai')).length).toBeGreaterThan(0)
@@ -853,7 +853,7 @@ describe('WorkBuddy Host settings integration', () => {
     await reloadCtx.plugin(LlmRuntime)
     reloadCtx.provide('settings', forms as never)
     await reloadCtx.plugin(FakeWebServer)
-    await reloadCtx.plugin(WorkBuddy, {})
+    await reloadCtx.plugin(WorkBuddy, { transport: 'gateway' })
 
     await vi.waitFor(async () => {
       expect((await reloadCtx.llm.listModels('workbuddy-ai')).length).toBeGreaterThan(0)
@@ -900,7 +900,7 @@ describe('WorkBuddy Host settings integration', () => {
     await ctx.plugin(LlmRuntime)
     ctx.provide('settings', forms as never)
     await ctx.plugin(FakeWebServer)
-    await ctx.plugin(WorkBuddy, {})
+    await ctx.plugin(WorkBuddy, { transport: 'gateway' })
 
     await vi.waitFor(async () => {
       expect((await ctx.llm.listModels('workbuddy-ai')).length).toBeGreaterThan(0)
@@ -977,7 +977,7 @@ describe('WorkBuddy Host settings integration', () => {
     await ctx.plugin(LlmRuntime)
     ctx.provide('settings', forms as never)
     await ctx.plugin(FakeWebServer)
-    await ctx.plugin(WorkBuddy, {})
+    await ctx.plugin(WorkBuddy, { transport: 'gateway' })
 
     await vi.waitFor(async () => {
       expect((await ctx.llm.listModels('workbuddy-ai')).length).toBeGreaterThan(0)
@@ -1040,7 +1040,7 @@ describe('WorkBuddy Host settings integration', () => {
     await ctx.plugin(LlmRuntime)
     ctx.provide('settings', forms as never)
     await ctx.plugin(FakeWebServer)
-    await ctx.plugin(WorkBuddy, {})
+    await ctx.plugin(WorkBuddy, { transport: 'gateway' })
 
     await vi.waitFor(async () => {
       expect((await ctx.llm.listModels('workbuddy-ai')).length).toBeGreaterThan(0)
@@ -1095,7 +1095,7 @@ describe('WorkBuddy Host settings integration', () => {
     await ctx.plugin(LlmRuntime)
     ctx.provide('settings', forms as never)
     await ctx.plugin(FakeWebServer)
-    await ctx.plugin(WorkBuddy, {})
+    await ctx.plugin(WorkBuddy, { transport: 'gateway' })
 
     await vi.waitFor(async () => {
       expect((await ctx.llm.listModels('workbuddy-ai')).length).toBeGreaterThan(0)
@@ -1175,7 +1175,7 @@ describe('WorkBuddy Host settings integration', () => {
     await ctx.plugin({ name: 'real-settings-forms', apply: (c: Context) => { new SettingsForms(c) } })
     await ctx.plugin(FakeWebServer)
 
-    const wrapped = ctx.plugin(WorkBuddy, {})
+    const wrapped = ctx.plugin(WorkBuddy, { transport: 'gateway' })
     pluginFiber = Object.getPrototypeOf(wrapped) as typeof pluginFiber
     pluginFiber!.entry = { id: 'include:llm-workbuddy', options: { id: 'llm-workbuddy' } }
     await wrapped

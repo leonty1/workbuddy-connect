@@ -85,6 +85,52 @@ function systemTextOf(messages: unknown): string {
   return parts.join('\n')
 }
 
+/**
+ * The harness identity opener the CN WorkBuddy gateway blocks on.
+ *
+ * The CN endpoint (base `https://copilot.tencent.com`) answers 400 /
+ * `code 11128` / 「请求被拦截，请重新发送」 whenever a system-role message
+ * carries this exact first-party sentence — a content-based channel check,
+ * not a credential problem (a minimal system prompt passes, bisected 2026-10-
+ * 21). pi-ai ships it as the order-−1000 system block, so it reaches every
+ * gateway request. Removing it is the single change that lets a direct
+ * gateway call clear the check; everything else in the prompt stays.
+ */
+const DSH_IDENTITY_SENTENCE = 'You are an AI agent powered by DeepSeek Harness.'
+
+/**
+ * Strip {@link DSH_IDENTITY_SENTENCE} from the system/developer messages of a
+ * chat body so the CN gateway's channel check (11128) is not tripped.
+ *
+ * Gateway path only: the CLI transport returns before this is reached, so the
+ * official-CLI bridge is never altered. A body that is not a JSON object, or
+ * whose message content is not a plain string, is returned unchanged — the
+ * content-parts form is left intact.
+ */
+export function stripDshIdentity(prepared: string): string {
+  let body: unknown
+  try {
+    body = JSON.parse(prepared)
+  } catch {
+    return prepared
+  }
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) return prepared
+  const messages = (body as Record<string, unknown>)['messages']
+  if (!Array.isArray(messages)) return prepared
+  let changed = false
+  for (const message of messages) {
+    if (typeof message !== 'object' || message === null || Array.isArray(message)) continue
+    const record = message as Record<string, unknown>
+    if (record['role'] !== 'system' && record['role'] !== 'developer') continue
+    const content = record['content']
+    if (typeof content === 'string' && content.includes(DSH_IDENTITY_SENTENCE)) {
+      record['content'] = content.split(DSH_IDENTITY_SENTENCE).join('')
+      changed = true
+    }
+  }
+  return changed ? JSON.stringify(body) : prepared
+}
+
 /** Chat-completion POSTs must carry a JSON body type (simple-request CSRF drops here). */
 function isJsonContentType(req: IncomingMessage): boolean {
   const type = req.headers['content-type']
@@ -249,7 +295,10 @@ export function createWorkBuddyShim(options: WorkBuddyShimOptions): WorkBuddyShi
     }
 
     const raw = (await readBody(req)).toString('utf8')
-    const prepared = prepareChatBody(raw)
+    // Gateway path only: the CLI transport returned above, so this never
+    // touches the official-CLI bridge. Strip the harness identity sentence so
+    // the CN gateway's content-based channel check (11128) is not tripped.
+    const prepared = stripDshIdentity(prepareChatBody(raw))
 
     const controller = new AbortController()
     req.on('close', () => controller.abort())

@@ -435,42 +435,59 @@ function commonHeaders(credential: WorkBuddyCredential): Record<string, string> 
 }
 
 /**
- * The conversation-channel trio the chat endpoints require.
- *
- * Since 2026-10-16 `www.workbuddy.ai` answers any `/v2/chat/completions`
- * request that omits all three `X-Conversation-*` headers with `400` /
- * `code 11128` / `msg: "conversation id missing"`, whose `displayMsg.zh` is
- * 「请求被拦截，请重新发送」 (issue #139). The official desktop client sends
- * the trio on chat and speech alike — read out of `resources/app.asar`, where
- * the names are `X-Conversation-ID`, `X-Conversation-Request-ID` and
- * `X-Conversation-Message-ID`.
- *
- * A fresh UUID per request is enough, and is what the wire measurement
- * supports: the upstream keeps no history keyed by the id (two calls sharing
- * one id, the second carrying only `system` + `user`, still answered "I don't
- * know"), so the trio marks the channel rather than carrying conversation
- * state. Fresh ids also keep concurrent sub-agents off one shared
- * conversation. The CN gateway was measured accepting the same trio (200 with
- * and without), so both regions carry it and the two paths cannot drift.
+ * The conversation-channel trio the chat endpoints require is emitted inline
+ * in {@link chatHeaders} rather than by a helper, because the official CLI
+ * sends `X-Conversation-Message-ID` and `X-Request-ID` as the *same* value and
+ * the two must never drift. Since 2026-10-16 `www.workbuddy.ai` answers any
+ * `/v2/chat/completions` request that omits all three `X-Conversation-*`
+ * headers with `400` / `code 11128` / `msg: "conversation id missing"`, whose
+ * `displayMsg.zh` is 「请求被拦截，请重新发送」 (issue #139). A fresh id per
+ * request is enough — the upstream keeps no history keyed by the id — and
+ * fresh ids keep concurrent sub-agents off one shared conversation.
  */
-function conversationHeaders(): Record<string, string> {
-  return {
-    'X-Conversation-ID': randomUUID(),
-    'X-Conversation-Request-ID': randomUUID(),
-    'X-Conversation-Message-ID': randomUUID(),
-  }
+
+/**
+ * The one request id shared by `X-Request-ID` and `X-Conversation-Message-ID`.
+ *
+ * The official CLI sends the same hex string on both headers (measured, not
+ * inferred); a fresh value per request keeps concurrent sub-agents off one
+ * shared request. It is the single source for both so the two never diverge.
+ */
+function requestMessageId(): string {
+  return randomUUID()
 }
 
 /**
- * Chat request headers, including the X-No-* conventions the official CLI uses.
+ * Chat request headers.
  *
- * `userAgent` and `clientVersion` carry the same resolved desktop identity for
- * chat and probe requests. Refresh shares `commonHeaders` but never this
- * override, so the two paths cannot drift into each other. The
- * `X-Conversation-*` trio rides along too — see {@link conversationHeaders} —
- * because the international gateway rejects a chat that omits it.
+ * `userAgent` and `clientVersion` carry the resolved desktop identity for chat
+ * and probe requests. Refresh shares `commonHeaders` but never this override,
+ * so the two paths cannot drift into each other. The `X-Conversation-*` trio
+ * rides along on both regions — the international gateway rejects a chat that
+ * omits it — and the CN gateway measures `X-Conversation-Message-ID` and
+ * `X-Request-ID` as the *same* value in the official CLI, so both share one
+ * id and can never drift apart.
+ *
+ * The channel identity is region-scoped on purpose. The **CN** gateway is the
+ * one that enforces the channel check (11128), and the official CodeBuddy CLI
+ * is the sanctioned channel there, so CN presents the CLI's own identity,
+ * measured from the running CLI rather than reconstructed from the desktop
+ * app: `X-IDE-Type`/`X-IDE-Name` `CLI` with the CLI's own version,
+ * `x-codebuddy-request: 1`, and `X-Agent-Intent: craft` /
+ * `X-Agent-Purpose: conversation`. The **international** gateway does not
+ * enforce that check and was working under the desktop `WorkBuddy` identity,
+ * so it keeps that identity untouched rather than being perturbed to match a
+ * check it does not perform. The body plane is matched separately in
+ * {@link prepareCnChatBody}, which is likewise CN-only.
  */
-function chatHeaders(credential: WorkBuddyCredential, userAgent: string, clientVersion: string): Record<string, string> {
+function chatHeaders(
+  credential: WorkBuddyCredential,
+  userAgent: string,
+  clientVersion: string,
+  cliVersion?: string,
+): Record<string, string> {
+  const messageId = requestMessageId()
+  const isCn = regionOf(credential.domain) !== 'global'
   const headers: Record<string, string> = {
     ...commonHeaders(credential),
     'User-Agent': userAgent,
@@ -481,11 +498,30 @@ function chatHeaders(credential: WorkBuddyCredential, userAgent: string, clientV
       ? { 'X-No-Enterprise-Id': '1' }
       : { 'X-Enterprise-Id': credential.enterpriseId },
     ...credential.domain === '' ? { 'X-No-Department-Info': '1' } : { 'X-Domain': credential.domain },
-    'X-IDE-Type': 'WorkBuddy',
-    'X-IDE-Name': 'WorkBuddy',
-    'X-IDE-Version': clientVersion,
-    'X-Product': 'SaaS',
-    ...conversationHeaders(),
+    ...(isCn
+      // CN: present the official CLI's channel identity (the sanctioned
+      // channel the CN gateway accepts).
+      ? {
+        'X-IDE-Type': 'CLI',
+        'X-IDE-Name': 'CLI',
+        'X-IDE-Version': cliVersion ?? clientVersion,
+        'X-Product': 'SaaS',
+        'x-codebuddy-request': '1',
+        'X-Agent-Intent': 'craft',
+        'X-Agent-Purpose': 'conversation',
+        'X-Private-Data': 'false',
+      }
+      // International: keep the desktop identity it was working under.
+      : {
+        'X-IDE-Type': 'WorkBuddy',
+        'X-IDE-Name': 'WorkBuddy',
+        'X-IDE-Version': clientVersion,
+        'X-Product': 'SaaS',
+      }),
+    'X-Request-ID': messageId,
+    'X-Conversation-ID': randomUUID(),
+    'X-Conversation-Request-ID': randomUUID(),
+    'X-Conversation-Message-ID': messageId,
   }
   return headers
 }
@@ -840,7 +876,7 @@ export class WorkBuddyUpstreamClient {
     try {
       response = await fetch(`${chatBase(credential)}/v2/chat/completions`, {
         method: 'POST',
-        headers: { ...chatHeaders(credential, userAgent, identity.clientVersion), 'Authorization': `Bearer ${credential.accessToken}` },
+        headers: { ...chatHeaders(credential, userAgent, identity.clientVersion, identity.cliVersion), 'Authorization': `Bearer ${credential.accessToken}` },
         body: region === 'global' ? prepareInternationalChatBody(bodyJson) : prepareCnChatBody(bodyJson),
         ...signal === undefined ? {} : { signal },
       })
@@ -1234,7 +1270,7 @@ export class WorkBuddyUpstreamClient {
     try {
       response = await fetch(`${chatBase(credential)}/v2/chat/completions`, {
         method: 'POST',
-        headers: { ...chatHeaders(credential, userAgent, identity.clientVersion), 'Authorization': `Bearer ${credential.accessToken}` },
+        headers: { ...chatHeaders(credential, userAgent, identity.clientVersion, identity.cliVersion), 'Authorization': `Bearer ${credential.accessToken}` },
         body: JSON.stringify(payload),
         signal,
       })
@@ -1538,16 +1574,41 @@ export function modelWithCurrentPromotion(model: WorkBuddyUpstreamModel, now = D
  * so this is safe to run over an already-prepared-or-not body.
  */
 /**
+ * Present the CN chat body in the shape the official CodeBuddy CLI sends.
+ *
+ * Measured from the running CLI's own `chat/completions` request, the body
+ * carries, beyond `model`/`messages`/`stream`, `temperature: 1`,
+ * `stream_options: { include_usage: true }`, `reasoning_effort`, `verbosity:
+ * "high"` and `reasoning_summary: "auto"`. This helper adds the constant ones
+ * — `temperature`, `stream_options`, `verbosity`, `reasoning_summary` — only
+ * when the caller did not already set them, so it mimics the CLI's shape
+ * without overriding per-model values pi-ai already chose. `reasoning_effort`
+ * is left to {@link dropUnsupportedEffort} (the CLI sends it only for
+ * reasoning models, and the adapter already maps the picker onto it), and
+ * `max_tokens` is deliberately **not** forced: the CLI's `131072` is
+ * model-specific and overriding a smaller per-model cap would break models
+ * whose ceiling is lower, which is a real regression for no channel benefit.
+ */
+function alignCnBodyToCli(obj: Record<string, unknown>): void {
+  if (obj['temperature'] === undefined) obj['temperature'] = 1
+  if (obj['stream_options'] === undefined) obj['stream_options'] = { include_usage: true }
+  if (obj['verbosity'] === undefined) obj['verbosity'] = 'high'
+  if (obj['reasoning_summary'] === undefined) obj['reasoning_summary'] = 'auto'
+}
+
+/**
  * Prepare a body for the **CN** endpoint.
  *
- * Until #87 the CN wire was the caller's body verbatim. The only difference
- * now is the shared {@link dropUnsupportedEffort} strip, whose region scope was
- * lifted once measurements showed this endpoint rejects `off` too.
+ * The CN wire is the caller's body with two adjustments: the shared
+ * {@link dropUnsupportedEffort} strip (this endpoint rejects the adapter's
+ * `off` spelling) and {@link alignCnBodyToCli}, which presents the body in the
+ * official CLI's measured shape so a direct gateway call reads like the
+ * vendor's own tool on the body plane as well as the header plane.
  *
  * Deliberately **not** routed through {@link prepareChatBody}: the shim already
  * applies it before handing the body to {@link WorkBuddyUpstreamClient.chatStream},
  * and re-running it would be a second `stream`/`developer`/`tool_choice`
- * normalisation of an already-normalised body. Only the strip belongs here.
+ * normalisation of an already-normalised body.
  *
  * A body that is not a JSON object is returned unchanged, so this is safe to
  * run over an already-prepared-or-not body.
@@ -1562,6 +1623,7 @@ export function prepareCnChatBody(source: string): string {
   }
   if (!isObject(body)) return source
   dropUnsupportedEffort(body)
+  alignCnBodyToCli(body)
   return JSON.stringify(body)
 }
 

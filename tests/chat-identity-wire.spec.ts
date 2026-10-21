@@ -45,27 +45,40 @@ function captureFetch(body: string, ok = true, status = 200) {
 }
 
 describe('chatStream identity', () => {
-  it('presents the CN desktop UA and preserves the shared header contract', async () => {
+  it('presents the CN desktop UA and the official CLI channel identity', async () => {
     const wire = captureFetch('{}')
     const result = await client().chatStream(CN, JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'hi' }] }))
     expect(result.ok).toBe(true)
     const [url, init] = wire.last()
     expect(url).toBe('https://copilot.tencent.com/v2/chat/completions')
     const headers = init.headers as Record<string, string>
+    // The UA keeps the desktop form (chatUserAgent) on both regions; the
+    // channel identity is the CLI's, which is what the CN gateway accepts.
     expect(headers['User-Agent']).toBe('WorkBuddy/5.5.6 WorkBuddy/5.5.6 CLI/2.137.1')
-    expect(headers['X-IDE-Type']).toBe('WorkBuddy')
-    expect(headers['X-IDE-Name']).toBe('WorkBuddy')
-    expect(headers['X-IDE-Version']).toBe(IDENTITY.clientVersion)
+    expect(headers['X-IDE-Type']).toBe('CLI')
+    expect(headers['X-IDE-Name']).toBe('CLI')
+    expect(headers['X-IDE-Version']).toBe(IDENTITY.cliVersion)
+    // The CN-only CLI markers the official client sends.
+    expect(headers['x-codebuddy-request']).toBe('1')
+    expect(headers['X-Agent-Intent']).toBe('craft')
+    expect(headers['X-Agent-Purpose']).toBe('conversation')
+    expect(headers['X-Private-Data']).toBe('false')
+    // X-Request-ID and X-Conversation-Message-ID share one id, as the CLI does.
+    expect(headers['X-Request-ID']).toBe(headers['X-Conversation-Message-ID'])
     expect(headers['X-Product']).toBe('SaaS')
     // The shared family stays exactly as before the identity change.
     expect(headers['X-Requested-With']).toBe('XMLHttpRequest')
     expect(headers['Origin']).toBe('https://www.codebuddy.cn')
     expect(headers['Referer']).toBe('https://www.codebuddy.cn/')
     expect(headers['X-User-Id']).toBe('uid-1')
-    expect(headers['X-Product']).toBe('SaaS')
     expect(headers['Authorization']).toBe('Bearer at')
     expect(headers['X-Refresh-Token']).toBeUndefined()
-    expect(init.body).toBe(JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'hi' }] }))
+    const body = JSON.parse(init.body as string) as Record<string, unknown>
+    // The CN body is presented in the CLI's measured shape.
+    expect(body['temperature']).toBe(1)
+    expect(body['verbosity']).toBe('high')
+    expect(body['reasoning_summary']).toBe('auto')
+    expect(body['stream_options']).toEqual({ include_usage: true })
   })
 
   it('names the international product in the UA and still prepends the first system message', async () => {
@@ -87,15 +100,19 @@ describe('chatStream identity', () => {
 })
 
 describe('probeEffort identity', () => {
-  it('shares the chat identity rule — same UA family, CN probe shape', async () => {
+  it('shares the chat identity rule — CN probe presents the CLI channel identity', async () => {
     const wire = captureFetch('{"code":11150,"msg":"no"}', false, 400)
     await client().probeEffort(CN, 'model-x', 'low', new AbortController().signal)
     const [, init] = wire.last()
     const headers = init.headers as Record<string, string>
     expect(headers['User-Agent']).toBe('WorkBuddy/5.5.6 WorkBuddy/5.5.6 CLI/2.137.1')
-    expect(headers['X-IDE-Type']).toBe('WorkBuddy')
-    expect(headers['X-IDE-Name']).toBe('WorkBuddy')
-    expect(headers['X-IDE-Version']).toBe(IDENTITY.clientVersion)
+    expect(headers['X-IDE-Type']).toBe('CLI')
+    expect(headers['X-IDE-Name']).toBe('CLI')
+    expect(headers['X-IDE-Version']).toBe(IDENTITY.cliVersion)
+    expect(headers['x-codebuddy-request']).toBe('1')
+    expect(headers['X-Agent-Intent']).toBe('craft')
+    expect(headers['X-Agent-Purpose']).toBe('conversation')
+    expect(headers['X-Private-Data']).toBe('false')
     expect(headers['X-Product']).toBe('SaaS')
     const body = JSON.parse(init.body as string) as {
       messages: { role: string }[]; max_tokens: number; reasoning_effort: string
@@ -130,14 +147,16 @@ describe('probeEffort identity', () => {
     const chatWire = captureFetch('{}')
     const chat = await throwing.chatStream(CN, JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'hi' }] }))
     expect(chat.ok).toBe(true)
+    // CN always presents the CLI channel identity; with no resolved CLI
+    // version the version field degrades to the desktop version.
     expect((chatWire.last()[1].headers as Record<string, string>)['User-Agent'])
       .toBe('WorkBuddy/5.5.6 WorkBuddy/5.5.6')
     expect((chatWire.last()[1].headers as Record<string, string>)['X-IDE-Version'])
       .toBe('5.5.6')
     expect((chatWire.last()[1].headers as Record<string, string>)['X-IDE-Type'])
-      .toBe('WorkBuddy')
+      .toBe('CLI')
     expect((chatWire.last()[1].headers as Record<string, string>)['X-IDE-Name'])
-      .toBe('WorkBuddy')
+      .toBe('CLI')
 
     const probeWire = captureFetch('{"code":11150,"msg":"no"}', false, 400)
     const probe = await throwing.probeEffort(GLOBAL, 'model-x', 'low', new AbortController().signal)

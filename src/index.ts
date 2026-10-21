@@ -41,7 +41,7 @@ import { legacySettingsOf, modernSettingsOf, resolveModernSettingsEntryId } from
 import { CN_VARIANT, WORKBUDDY_VARIANTS, type WorkBuddyVariant } from './variants.ts'
 
 export { WORKBUDDY_PROVIDER, WORKBUDDY_STREAM_IDLE_TIMEOUT_MS, createWorkBuddyAdapter, type WorkBuddyAdapter } from './adapter.ts'
-export { createWorkBuddyShim, type WorkBuddyShim } from './shim.ts'
+export { createWorkBuddyShim, stripDshIdentity, type WorkBuddyShim } from './shim.ts'
 export {
   FALLBACK_WORKBUDDY_AI_MODELS,
   FALLBACK_WORKBUDDY_MODELS,

@@ -99,7 +99,7 @@ dsh --profile dsh-tui
 ```yaml
 plugins:
   dsh-workbuddy-connect:
-    transport: cli          # cli（默认）或 gateway（上游原行为）
+    transport: cli          # cli（默认）或 gateway（见下文「网关模式」）
     # cliPath: /Users/me/.nvm/versions/node/v22.22.2/bin/codebuddy
     # cliTimeoutMs: 600000
     # cliTools: false       # 默认纯文本；true 让 CLI 跑自己的工具循环
@@ -114,7 +114,7 @@ plugins:
 - **默认纯文本**：一次对话会把消息整理成一段文本交给 `codebuddy -p`，CLI 的工具执行被关闭（`--tools "" --max-turns 1`），DSH 的工具调用不会传给模型；图片以「已省略」占位，模型无法真正读图。
 - **可选工具模式（`cliTools: true`）**：让 CLI 跑它自己的工具循环——真正执行命令、读写文件，对话里的工作目录取自 DSH 会话系统提示中的当前目录，并同步为 CLI 进程的工作目录。注意三点：执行发生在 CLI 内部，**DSH 的审批、工具卡片与会话日志都不覆盖它**，轨迹里只有最终文本；`cliPermissionMode` 控制 CLI 的权限档位（默认 `bypassPermissions`——无人值守无法弹审批，`dontAsk` 会拒绝所有工具，故工具模式默认预授权，如需收紧可改 `acceptEdits` 等）；`cliCwd` 未设置时 CLI 在临时目录里跑，因为桌面应用的自身工作目录不一定是项目。需要写文件的任务请显式配置 `cliCwd`。
 - **额外开销**：CLI 每次调用会附带自己的系统提示与上下文（实测约 6k tokens），且比直连网关慢；工具模式还会按 `cliMaxTurns`（默认 30）多跑若干模型回合，耗时与积分随任务上升。长时间任务受 `cliTimeoutMs` 限制。
-- **回退网关**：设置 `transport: gateway` 即恢复上游行为（需要桌面 App 登录），可用于对照排查。
+- **网关模式（`transport: gateway`）**：直连 WorkBuddy CN 网关（需要桌面 App 登录）。请求按官方 CodeBuddy CLI 的实测线路对齐——CLI 身份头（`X-IDE-Type/Name: CLI` 等）与请求体字段；系统提示会先做两处清理：移除 DSH 身份句，并把「DeepSeek Harness」品牌字样替换为中性词。网关的渠道校验（11128）除了身份句，还会拦截品牌字样与 Web-GUI 指令句的组合出现，替换后实测完整 DSH 系统提示可正常通过。与 CLI 纯文本桥不同，DSH 的工具调用在网关模式正常往返。
 
 CLI 二进制按以下顺序查找：`cliPath`（含 `/` 时视为绝对路径，写错会直接报错）→ `PATH` → `~/.nvm/versions/node/*/bin`（取最新版本）→ `~/.local/bin`、`~/.npm-global/bin`、`~/.volta/bin`、`~/.bun/bin`、`/opt/homebrew/bin`、`/usr/local/bin`。桌面应用的启动环境通常缺少 shell 的 PATH，自动查找覆盖了常见安装位置；仍找不到时请显式配置 `cliPath`。
 

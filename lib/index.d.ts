@@ -1393,8 +1393,9 @@ interface WorkBuddyShimOptions {
   cli?: CodeBuddyOptions;
 }
 /**
- * Strip {@link DSH_IDENTITY_SENTENCE} from the system/developer messages of a
- * chat body so the CN gateway's channel check (11128) is not tripped.
+ * Strip {@link DSH_IDENTITY_SENTENCE} and replace {@link DSH_BRAND} mentions
+ * in the system/developer messages of a chat body so the CN gateway's channel
+ * check (11128) is not tripped.
  *
  * Gateway path only: the CLI transport returns before this is reached, so the
  * official-CLI bridge is never altered. A body that is not a JSON object, or

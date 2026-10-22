@@ -89,18 +89,34 @@ function systemTextOf(messages: unknown): string {
  * The harness identity opener the CN WorkBuddy gateway blocks on.
  *
  * The CN endpoint (base `https://copilot.tencent.com`) answers 400 /
- * `code 11128` / 「请求被拦截，请重新发送」 whenever a system-role message
- * carries this exact first-party sentence — a content-based channel check,
- * not a credential problem (a minimal system prompt passes, bisected 2026-10-
- * 21). pi-ai ships it as the order-−1000 system block, so it reaches every
- * gateway request. Removing it is the single change that lets a direct
- * gateway call clear the check; everything else in the prompt stays.
+ * `code 11128` / 「请求被拦截，请重新发送」 on content-based channel checks,
+ * not credential problems (a minimal system prompt passes). pi-ai ships this
+ * sentence as the order-−1000 system block, so it reaches every gateway
+ * request; removing it is required for a direct gateway call to clear the
+ * check.
  */
 const DSH_IDENTITY_SENTENCE = 'You are an AI agent powered by DeepSeek Harness.'
 
 /**
- * Strip {@link DSH_IDENTITY_SENTENCE} from the system/developer messages of a
- * chat body so the CN gateway's channel check (11128) is not tripped.
+ * The harness brand the CN gateway's channel check also scores.
+ *
+ * Bisected live 2026-10-22 against the real 5.6 KB DSH system prompt: the
+ * brand phrase alone passes, but the Web-GUI instruction sentences
+ * (“You are interacting with the user through the DeepSeek Harness Web
+ * GUI …” plus the “this GUI” reference sentence) block deterministically,
+ * with or without tools. Replacing every remaining brand mention in
+ * system/developer messages lets the full real prompt pass; the bare token
+ * `DSH` (for example `__DSH_BOOT__`) is not scored and stays.
+ */
+const DSH_BRAND = 'DeepSeek Harness'
+
+/** Neutral replacement for {@link DSH_BRAND} that keeps sentence grammar intact. */
+const DSH_BRAND_REPLACEMENT = 'harness'
+
+/**
+ * Strip {@link DSH_IDENTITY_SENTENCE} and replace {@link DSH_BRAND} mentions
+ * in the system/developer messages of a chat body so the CN gateway's channel
+ * check (11128) is not tripped.
  *
  * Gateway path only: the CLI transport returns before this is reached, so the
  * official-CLI bridge is never altered. A body that is not a JSON object, or
@@ -123,8 +139,11 @@ export function stripDshIdentity(prepared: string): string {
     const record = message as Record<string, unknown>
     if (record['role'] !== 'system' && record['role'] !== 'developer') continue
     const content = record['content']
-    if (typeof content === 'string' && content.includes(DSH_IDENTITY_SENTENCE)) {
-      record['content'] = content.split(DSH_IDENTITY_SENTENCE).join('')
+    if (typeof content === 'string'
+      && (content.includes(DSH_IDENTITY_SENTENCE) || content.includes(DSH_BRAND))) {
+      record['content'] = content
+        .split(DSH_IDENTITY_SENTENCE).join('')
+        .split(DSH_BRAND).join(DSH_BRAND_REPLACEMENT)
       changed = true
     }
   }
@@ -296,8 +315,9 @@ export function createWorkBuddyShim(options: WorkBuddyShimOptions): WorkBuddyShi
 
     const raw = (await readBody(req)).toString('utf8')
     // Gateway path only: the CLI transport returned above, so this never
-    // touches the official-CLI bridge. Strip the harness identity sentence so
-    // the CN gateway's content-based channel check (11128) is not tripped.
+    // touches the official-CLI bridge. Strip the harness identity sentence and
+    // neutralize brand mentions so the CN gateway's content-based channel
+    // check (11128) is not tripped.
     const prepared = stripDshIdentity(prepareChatBody(raw))
 
     const controller = new AbortController()

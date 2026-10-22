@@ -154,6 +154,42 @@ describe('WorkBuddy shim', () => {
     expect(forwarded['stream']).toBe(true)
   })
 
+  it('strips the DSH identity sentence and brand mentions from system messages on the gateway path', async () => {
+    const harness = await startShim(() => ({
+      ok: true,
+      response: new Response('data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n', {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      }),
+    }))
+    const response = await fetch(`${harness.shim.baseUrl()}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', authorization: `Bearer ${harness.shim.token()}` },
+      body: JSON.stringify({
+        model: 'glm-5.3',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an AI agent powered by DeepSeek Harness. You are interacting with the user through the DeepSeek Harness Web GUI whose URL the runtime context names. window.__DSH_BOOT__ stays.',
+          },
+          { role: 'user', content: 'the user may mention DeepSeek Harness freely' },
+        ],
+      }),
+    })
+    expect(response.status).toBe(200)
+    const forwarded = JSON.parse(harness.upstreamBodies[0] ?? '') as {
+      messages: { role: string, content: string }[]
+    }
+    const system = forwarded.messages[0]?.content ?? ''
+    expect(system).not.toContain('DeepSeek Harness')
+    expect(system).not.toContain('You are an AI agent powered by')
+    expect(system).toContain('through the harness Web GUI')
+    // The bare DSH token is not scored by the channel check and stays.
+    expect(system).toContain('__DSH_BOOT__')
+    // Only system-role content is rewritten; user content passes verbatim.
+    expect(forwarded.messages[1]?.content).toBe('the user may mention DeepSeek Harness freely')
+  })
+
   it('maps an upstream credit failure onto HTTP 402', async () => {
     const harness = await startShim(() => ({
       ok: false,

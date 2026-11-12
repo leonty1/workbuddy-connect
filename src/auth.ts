@@ -8,6 +8,7 @@
  * @module dsh-workbuddy-connect/auth
  */
 
+import { readFileSync } from 'node:fs'
 import { readFile, rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
@@ -358,6 +359,48 @@ export class WorkBuddyCredentialStore {
   /** The resolved desktop auth-file path, for diagnostics. */
   desktopAuthPath(): string | undefined {
     return this.resolveDesktopPath()
+  }
+
+  /**
+   * Whether a credential file exists that this variant could plausibly use,
+   * without unsealing or refreshing it.
+   *
+   * Startup-only. A headless host resolves its configured default model right
+   * after the provider registers, before the asynchronous credential sweep can
+   * adopt an account and reveal the group. This check lets the catalog start
+   * visible so that resolution sees the roster. Plaintext documents that are
+   * provably unusable here — no token, or another product's region — are
+   * refused synchronously, because showing their roster is the exact mistake
+   * the sweep's cross-product guard exists to prevent. An at-rest envelope
+   * cannot be classified without the asynchronous unseal, so it stays a
+   * candidate; the sweep still hides the group when it fails.
+   */
+  hasStoredCredential(): boolean {
+    return [this.ownPath, ...this.resolveDesktopCandidates()].some(path => this.credentialFilePlausible(path))
+  }
+
+  /** See {@link hasStoredCredential}; never throws for a missing file. */
+  private credentialFilePlausible(path: string): boolean {
+    let text: string
+    try {
+      text = readFileSync(path, 'utf8')
+    } catch {
+      return false
+    }
+    if (text.trim() === '') return false
+    try {
+      JSON.parse(text)
+    } catch {
+      // Not JSON at all: not a document this plugin wrote or can read.
+      return false
+    }
+    const credential = parseWorkBuddyAuth(text)
+    if (credential === undefined) {
+      // Valid JSON without a plaintext token: an at-rest envelope, or an older
+      // shape. Presence is all this synchronous check can honestly claim.
+      return true
+    }
+    return this.variant === undefined || regionOf(credential.domain) === this.variant.region
   }
 
   /** The plugin-owned copy path, for diagnostics. */

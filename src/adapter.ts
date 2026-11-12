@@ -28,11 +28,14 @@ export const WORKBUDDY_STREAM_IDLE_TIMEOUT_MS = 300_000
 
 /**
  * Image-request budgets at the dsh-llm-pi-ai defaults; the profile type made
- * them required in 0.1.1-rc.2. They bound requests to models whose catalog
- * entry declares `supportsImages`; text-only models never receive images.
+ * them required in 0.1.1-rc.2, and the count pair in 0.2.2-rc.2. They bound
+ * requests to models whose catalog entry declares `supportsImages`; text-only
+ * models never receive images.
  */
 const REQUEST_IMAGE_BUDGETS = {
   maxRequestImageBytes: 20_971_520,
+  maxRequestImages: 50,
+  imageOffloadCountQuantum: 10,
   requestImagePixelBudget: 4_194_304,
   requestImageMaxBytes: 1_048_576,
 } as const
@@ -321,7 +324,8 @@ function toPiModel(info: WorkBuddyModelInfo, baseUrl: string, observed: WorkBudd
  * public export surface (root entry, `lib/` deep imports blocked by the
  * exports map, `src/` not shipped), so hand-assembly is the only supported
  * path and every newly required field must be adopted here explicitly —
- * `modelErrors` since 0.1.5-alpha.2 (#12).
+ * `modelErrors` since 0.1.5-alpha.2 (#12), the image count budgets since
+ * 0.2.2-rc.2.
  */
 export function createWorkBuddyAdapter(options: WorkBuddyAdapterOptions): WorkBuddyAdapter {
   const { shim, store, catalog, resolveAttachments, resolveImageAccess, observe, hidden } = options

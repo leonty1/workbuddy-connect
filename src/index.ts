@@ -239,9 +239,11 @@ export interface Config {
   /** Use the largest context window the international catalog explicitly offers. */
   useMaximumContextWindow?: boolean
   /**
-   * How chat requests reach a model: the official CodeBuddy CLI (`cli`) or
-   * WorkBuddy's HTTP gateway (`gateway`). The CLI is not rejected as an
-   * unapproved client. Off, it is text-only: DSH tools are unavailable.
+   * How chat requests reach a model: WorkBuddy's HTTP gateway (`gateway`,
+   * the default) or the official CodeBuddy CLI (`cli`). The gateway carries
+   * DSH's own tools, approvals, images, and system prompt; the CLI is not
+   * rejected as an unapproved client, but is text-only: DSH tools are
+   * unavailable.
    */
   transport?: 'cli' | 'gateway'
   /** CodeBuddy CLI binary used by `cli`; a path or a name searched on PATH. */
@@ -285,8 +287,8 @@ const PROBE_CONSENT_FIELD = z.boolean().default(false)
 // {@link plainConfigBoolean} below.
 const MAXIMUM_CONTEXT_WINDOW_FIELD = z.boolean().default(true).volatile()
   .description('Use the largest context window declared by WorkBuddy AI when alternatives are available (on by default)')
-const TRANSPORT_FIELD = z.union(['cli', 'gateway']).default('cli')
-  .description('Use the official CodeBuddy CLI (text-only, not rejected as an unapproved client) or the WorkBuddy HTTP gateway')
+const TRANSPORT_FIELD = z.union(['cli', 'gateway']).default('gateway')
+  .description('Send chat through the WorkBuddy HTTP gateway (default; full DSH tools, images, and system prompt) or the official CodeBuddy CLI (text-only opt-in)')
 const CLI_PATH_FIELD = z.string()
   .description('CodeBuddy CLI binary path or name (defaults to codebuddy on PATH and common install locations)')
 const CLI_TIMEOUT_FIELD = z.natural().default(600_000).min(1_000)
@@ -488,7 +490,18 @@ function createVariantRuntime(
   // whose models could only fail. `adoptIdentity` is what reveals it, and it
   // treats "never seen, still signed out" as no change — which is only correct
   // if the pre-adoption state is already hidden.
+  //
+  // Two startup exceptions, both because a headless host resolves the profile's
+  // default model immediately after provider registration, while the credential
+  // sweep that adopts an account is still in flight. Without them, a profile
+  // that defaults to a WorkBuddy model fails with UNKNOWN_MODEL on every boot
+  // even though the next sweep would reveal exactly that model. The CLI owns
+  // its own sign-in, so it always starts visible; the gateway starts visible
+  // when a credential file this variant could plausibly use exists — a
+  // synchronous presence/shape check, never an unseal. The first sweep still
+  // hides the group when the file cannot actually be used.
   catalog.setVisible(false)
+  if ((config.transport ?? 'gateway') === 'cli' || store.hasStoredCredential()) catalog.setVisible(true)
   const probeStore = new WorkBuddyProbeStore({
     pluginVersion: WORKBUDDY_CONNECT_VERSION,
     path: workbuddyProbePath(variant.probeFilename),
@@ -613,7 +626,7 @@ function probeSection(runtime: VariantRuntime, consent: boolean): WorkBuddyWebPr
 async function startVariant(ctx: Context, runtime: VariantRuntime, current: () => Config): Promise<boolean> {
   const { variant, store, client, catalog, probeService } = runtime
   const settings = current()
-  const transport = settings.transport ?? 'cli'
+  const transport = settings.transport ?? 'gateway'
   if (transport === 'cli' && variant.id !== CN_VARIANT.id) {
     // The CLI's roster is the CN product's model list; the international ids
     // (`default-model`, `fast-model`, …) have no CLI equivalent, so serving
@@ -740,7 +753,7 @@ export function apply(ctx: Context, config: Config): void {
    * The desktop app's credential is then only a catalog source, never a
    * prerequisite for serving models.
    */
-  const cliTransport = (): boolean => (current().transport ?? 'cli') === 'cli'
+  const cliTransport = (): boolean => (current().transport ?? 'gateway') === 'cli'
 
   /** Timers and in-flight work belonging to this plugin instance. */
   let stopped = false

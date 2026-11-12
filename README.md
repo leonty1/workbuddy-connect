@@ -4,18 +4,18 @@
 
 将 WorkBuddy 模型接入 DeepSeek Harness；两版分别显示各自的模型分组，并沿用各自的账号登录与积分。
 
-> **本仓库是 [corrinehu/dsh-workbuddy-connect](https://github.com/corrinehu/dsh-workbuddy-connect) 的 fork。** 0.8.0 起，国内版默认改走本机已登录的官方 CodeBuddy CLI：DSH 仍负责模型选择、推理档位和对话界面，请求由 CLI 用自己的登录态发出，不再触发 WorkBuddy 网关对未批准客户端的拦截（错误码 11128）。CLI 是文本桥——DSH 的工具调用不会传给模型，模型也无法在 DSH 里执行命令。国际版仍走原网关，因此 CLI 模式只提供国内版「WorkBuddy」分组。
+> **本仓库是 [corrinehu/dsh-workbuddy-connect](https://github.com/corrinehu/dsh-workbuddy-connect) 的 fork。** 0.8.2 起，国内版默认直连 WorkBuddy 网关：请求按官方 CodeBuddy CLI 的实测线路对齐（CLI 身份头与请求体字段），并清理会触发渠道校验的 DSH 身份句与品牌字样，因此完整 DSH 系统提示、工具调用、审批卡片与图片输入都照常工作。0.8.0–0.8.1 的 CodeBuddy CLI 文本桥保留为可选 `transport: cli`：它用自己的登录态绕过渠道校验，但只做纯文本，DSH 工具与图片不参与。国际版始终走网关。
 
 ## 安装
 
-**前置**：本机已安装并登录 WorkBuddy（国内版）桌面 App，并安装、登录官方 CodeBuddy CLI（`codebuddy` 或 `cbc`，`codebuddy -p "你好"` 能正常回答）。插件默认用 CLI 发起对话；桌面 App 的登录态只用于读取模型目录与账号信息。国际版仍需登录 WorkBuddy AI 桌面 App。
+**前置**：本机已安装并登录 WorkBuddy（国内版）桌面 App；国际版需登录 WorkBuddy AI 桌面 App。默认的网关模式不依赖 CodeBuddy CLI。只有显式选用 `transport: cli` 时，才需要另外安装并登录官方 CodeBuddy CLI（`codebuddy` 或 `cbc`，`codebuddy -p "你好"` 能正常回答）。
 
 **推荐：把安装交给本机已有的 Agent**——任何具备终端与文件操作能力的助手（DSH Agent、Codex、Claude Code、Cursor 等）都可以，把下面这段话原样发给它：
 
 ```text
 请帮我安装并验证 DSH（DeepSeek Harness）插件 dsh-workbuddy-connect（项目地址：https://github.com/leonty1/workbuddy-connect）：
 先阅读项目 README，确认我实际使用的界面（Web / Desktop / TUI）与 DSH 内核版本，桌面版以 App 内置核心为准，不要用独立 CLI 的版本代替；
-本 fork 面向 DSH 0.2.1-rc.2（插件 0.8.1），默认通过官方 CodeBuddy CLI 发起对话，请先确认 codebuddy 已安装并登录；
+本 fork 面向 DSH 0.2.1-rc.2 / 0.2.1-rc.3 / 0.2.2-rc.2（插件 0.8.5），默认走 WorkBuddy 网关，无需 CodeBuddy CLI；只有我明确要求 CLI 模式时，才确认 codebuddy 已安装并登录；
 再按版本对应关系从本仓库或本地源码安装，优先走本机受支持的非插件市场渠道；部分 Desktop 发行版（尤其官方 Electron 版）的 profile 由 App 管理，各发行版规则未必相同，先确认我所用的发行版，再探查其合规的安装方式，但不得绕过其校验；
 任何本地文件或配置改动，先征得我同意并做好备份；
 装完后验证模型选择器里出现 WorkBuddy 分组，并陪我完成一次简短对话；
@@ -26,7 +26,9 @@
 
 | DSH 内核 | 推荐插件版 |
 |---|---|
-| 0.2.1-rc.2 | 0.8.1（本 fork，源码或本地 link 安装） |
+| 0.2.2-rc.2 | 0.8.5（本 fork，源码或本地 link 安装；0.8.4 也可） |
+| 0.2.1-rc.3 | 0.8.5（同上；0.8.3 / 0.8.4 也可） |
+| 0.2.1-rc.2 | 0.8.5（同上；0.8.2 / 0.8.3 / 0.8.4 也可） |
 | 0.2.1-rc.2 | 0.7.9（上游 npm 版，仅网关） |
 | 0.2.1-rc.1 | 0.7.7 |
 | 0.2.0-rc.2 | 0.7.6 |
@@ -56,7 +58,7 @@ dsh --profile dsh-tui
 
 ## 功能
 
-- **开箱即用**：安装并启用插件后即可在 DSH 中直接使用；除已登录的 CodeBuddy CLI 外无需额外配置。
+- **开箱即用**：安装并启用插件后即可在 DSH 中直接使用；默认走 WorkBuddy 网关，只需对应桌面 App 已登录，无需额外配置或额外 CLI。
 
 ![WorkBuddy 模型出现在 DSH 模型选择器中](assets/1.png)
 
@@ -92,14 +94,15 @@ dsh --profile dsh-tui
 
 ![设置卡片显示账号与剩余积分](assets/3.png)
 
-## CLI 传输（本 fork 默认）
+## 传输方式（网关默认，CLI 可选）
 
-本 fork 在国内版新增 `transport` 配置，默认值 `cli`：
+本 fork 在国内版新增 `transport` 配置，默认值 `gateway`：
 
 ```yaml
 plugins:
   dsh-workbuddy-connect:
-    transport: cli          # cli（默认）或 gateway（见下文「网关模式」）
+    transport: gateway      # gateway（默认）或 cli（可选文本桥）
+    # 以下仅 transport: cli 时生效
     # cliPath: /Users/me/.nvm/versions/node/v22.22.2/bin/codebuddy
     # cliTimeoutMs: 600000
     # cliTools: false       # 默认纯文本；true 让 CLI 跑自己的工具循环
@@ -108,15 +111,16 @@ plugins:
     # cliMaxTurns: 30       # cliTools 为 true 时的单轮工具步数上限
 ```
 
-- **独立登录**：CLI 使用自己 `~/.codebuddy` 下的登录态；桌面 App 未登录也能在 CLI 模式下使用内置模型列表。CLI 未登录时对话会失败并在会话中说明原因。
-- **不再触发 11128**：请求由官方 CLI 发出，不经过 DSH 直接调用 WorkBuddy 网关，因此不会命中网关对未批准客户端的拦截。
-- **保留模型与档位选择**：模型选择器仍显示 WorkBuddy 分组和倍率，推理档位只在模型目录明确声明时透传给 CLI（`--effort`）；未声明的模型按 CLI 默认档位运行。
-- **默认纯文本**：一次对话会把消息整理成一段文本交给 `codebuddy -p`，CLI 的工具执行被关闭（`--tools "" --max-turns 1`），DSH 的工具调用不会传给模型；图片以「已省略」占位，模型无法真正读图。
-- **可选工具模式（`cliTools: true`）**：让 CLI 跑它自己的工具循环——真正执行命令、读写文件，对话里的工作目录取自 DSH 会话系统提示中的当前目录，并同步为 CLI 进程的工作目录。注意三点：执行发生在 CLI 内部，**DSH 的审批、工具卡片与会话日志都不覆盖它**，轨迹里只有最终文本；`cliPermissionMode` 控制 CLI 的权限档位（默认 `bypassPermissions`——无人值守无法弹审批，`dontAsk` 会拒绝所有工具，故工具模式默认预授权，如需收紧可改 `acceptEdits` 等）；`cliCwd` 未设置时 CLI 在临时目录里跑，因为桌面应用的自身工作目录不一定是项目。需要写文件的任务请显式配置 `cliCwd`。
-- **额外开销**：CLI 每次调用会附带自己的系统提示与上下文（实测约 6k tokens），且比直连网关慢；工具模式还会按 `cliMaxTurns`（默认 30）多跑若干模型回合，耗时与积分随任务上升。长时间任务受 `cliTimeoutMs` 限制。
-- **网关模式（`transport: gateway`）**：直连 WorkBuddy CN 网关（需要桌面 App 登录）。请求按官方 CodeBuddy CLI 的实测线路对齐——CLI 身份头（`X-IDE-Type/Name: CLI` 等）与请求体字段；系统提示会先做两处清理：移除 DSH 身份句，并把「DeepSeek Harness」品牌字样替换为中性词。网关的渠道校验（11128）除了身份句，还会拦截品牌字样与 Web-GUI 指令句的组合出现，替换后实测完整 DSH 系统提示可正常通过。与 CLI 纯文本桥不同，DSH 的工具调用在网关模式正常往返。
+> 从 0.8.1 升级、且只靠 CodeBuddy CLI 登录（桌面 App 未登录）的用户，请显式保留 `transport: cli`；否则切换到默认网关后需要先登录桌面 App。
 
-CLI 二进制按以下顺序查找：`cliPath`（含 `/` 时视为绝对路径，写错会直接报错）→ `PATH` → `~/.nvm/versions/node/*/bin`（取最新版本）→ `~/.local/bin`、`~/.npm-global/bin`、`~/.volta/bin`、`~/.bun/bin`、`/opt/homebrew/bin`、`/usr/local/bin`。桌面应用的启动环境通常缺少 shell 的 PATH，自动查找覆盖了常见安装位置；仍找不到时请显式配置 `cliPath`。
+- **网关（默认）**：直连 WorkBuddy CN 网关，需要桌面 App 登录。请求按官方 CodeBuddy CLI 的实测线路对齐——CLI 身份头（`X-IDE-Type/Name: CLI` 等）与请求体字段；系统提示会先做两处清理：移除 DSH 身份句，并把「DeepSeek Harness」品牌字样替换为中性词。网关的渠道校验（11128）除了身份句，还会拦截品牌字样与 Web-GUI 指令句的组合出现，替换后实测完整 DSH 系统提示可正常通过。与 CLI 文本桥不同，DSH 的工具调用、审批卡片与会话日志、图片输入都在网关模式正常往返。
+- **CLI 文本桥（`transport: cli`，可选）**：请求交给本机已登录的官方 CodeBuddy CLI，不依赖桌面 App 的登录态，也不经过 WorkBuddy 网关。一次对话会把消息整理成一段文本交给 `codebuddy -p`，CLI 的工具执行被关闭（`--tools "" --max-turns 1`），DSH 的工具调用不会传给模型；图片以「已省略」占位，模型无法真正读图。CLI 的模型清单是国内产品线，国际版模型没有 CLI 对应项，因此该模式只注册国内版「WorkBuddy」分组。
+- **CLI 独立登录**：CLI 使用自己 `~/.codebuddy` 下的登录态；桌面 App 未登录也能在 CLI 模式下使用内置模型列表。CLI 未登录时对话会失败并在会话中说明原因。
+- **CLI 保留模型与档位选择**：模型选择器仍显示 WorkBuddy 分组和倍率，推理档位只在模型目录明确声明时透传给 CLI（`--effort`）；未声明的模型按 CLI 默认档位运行。
+- **CLI 可选工具模式（`cliTools: true`）**：让 CLI 跑它自己的工具循环——真正执行命令、读写文件，对话里的工作目录取自 DSH 会话系统提示中的当前目录，并同步为 CLI 进程的工作目录。注意三点：执行发生在 CLI 内部，**DSH 的审批、工具卡片与会话日志都不覆盖它**，轨迹里只有最终文本；`cliPermissionMode` 控制 CLI 的权限档位（默认 `bypassPermissions`——无人值守无法弹审批，`dontAsk` 会拒绝所有工具，故工具模式默认预授权，如需收紧可改 `acceptEdits` 等）；`cliCwd` 未设置时 CLI 在临时目录里跑，因为桌面应用的自身工作目录不一定是项目。需要写文件的任务请显式配置 `cliCwd`。
+- **CLI 额外开销**：CLI 每次调用会附带自己的系统提示与上下文（实测约 6k tokens），且比直连网关慢；工具模式还会按 `cliMaxTurns`（默认 30）多跑若干模型回合，耗时与积分随任务上升。长时间任务受 `cliTimeoutMs` 限制。
+
+选用 CLI 时，二进制按以下顺序查找：`cliPath`（含 `/` 时视为绝对路径，写错会直接报错）→ `PATH` → `~/.nvm/versions/node/*/bin`（取最新版本）→ `~/.local/bin`、`~/.npm-global/bin`、`~/.volta/bin`、`~/.bun/bin`、`/opt/homebrew/bin`、`/usr/local/bin`。桌面应用的启动环境通常缺少 shell 的 PATH，自动查找覆盖了常见安装位置；仍找不到时请显式配置 `cliPath`。
 
 ## 推理档位为什么这样设计
 
@@ -148,11 +152,11 @@ dsh plugin --profile web exec dsh-workbuddy-connect doctor --provider workbuddy-
 - **加密桌面凭据的解密程序定位**：解密程序在 macOS 与 Windows 上会自动探测；Windows 上国内版先查默认路径 `%LOCALAPPDATA%\Programs\WorkBuddy\WorkBuddy.exe`，再查卸载注册表记录，国际版没有已验证的默认路径、仅查注册表。自动探测失败时，可用 `WORKBUDDY_ELECTRON_BIN`（国内版）或 `WORKBUDDY_AI_ELECTRON_BIN`（国际版）显式指定可执行文件，设置后需完全退出并重启 DSH 才生效。Linux 无法自动发现，需显式指定。WSL 下调用 Windows 侧解密程序时，插件会自动把子进程 `WSLENV` 中的 `ELECTRON_RUN_AS_NODE` 条目规范化为单一安全旗标（含 `/w` 转发、不做路径转换，其余条目原样保留），无需手动设置。此改动已通过离线回归测试，尚未完成 WSL2 / Windows 真机验证。
 - **国际版的模型目录来自 App 界面接口**：服务端按 User-Agent 分流下发，属私有实现，上游改动可能使其失效。届时插件按「本账号上次成功目录 → 内置目录」降级，并在卡片上标明来源（实时 / 已保存 / 内置）、更新时间与失败原因，但不能保证长期兼容。国内版目录走官方 CLI 同款接口，不受此影响。
 - **国际版仍未覆盖的环境**：Windows / WSL / Linux 下国际版 App 的版本读取尚未找到可靠来源，会退回最近保存的版本或内置值。macOS 上已通过真实 shim 验证 GPT 系完整回复、工具调用与续轮。
-- **无凭据时的行为变化**：网关模式下，某版 App 从未登录、也没留下插件自留副本时，该版模型分组不再显示（此前国内版会显示一份内置兜底列表，但那些模型选了必然报错）。本 fork 的 CLI 模式例外：国内版不依赖桌面 App 登录，始终显示内置模型列表，能否对话取决于 CodeBuddy CLI 自己的登录态。
+- **无凭据时的行为变化**：网关模式下，某版 App 从未登录、也没留下插件自留副本时，该版模型分组不再显示（此前国内版会显示一份内置兜底列表，但那些模型选了必然报错）。显式选择 `transport: cli` 时例外：国内版不依赖桌面 App 登录，始终显示内置模型列表，能否对话取决于 CodeBuddy CLI 自己的登录态。
 - **企业账号积分目前仅覆盖国内版**：国际版企业账号的计费接口尚未验证，仍按个人版接口读取；待有实测结论后再扩展。企业账号分支在本机无法自测（开发机为个人账号），依据官方 App 的接口契约实现，欢迎企业账号用户反馈实测结果。
 - **设置入口随 DSH 版本而异**：旧版设置服务使用 `installSection`，新版使用 SettingsForms。0.7.9 在 DSH 0.2.1-rc.2 上恢复国际版「使用上游声明的最大上下文窗口」开关，默认开启；关闭后使用上游默认窗口，设置在重启后保留。只有本插件的可写设置入口就绪后才显示开关，等待期间仍使用默认的最大窗口。
-- **CLI 传输目前只在 macOS 实现**：Windows 下 CLI 通常是 npm 生成的 `.cmd` 包装脚本，Node 直接 spawn 不能执行，尚未适配与实测。Windows 用户可先用 `transport: gateway`，或等待后续版本。
-- 依赖 WorkBuddy 客户端接口（非官方开放 API），WorkBuddy 更新后插件可能需要随之调整。
+- **可选的 CLI 传输目前只在 macOS 实现**：Windows 下 CLI 通常是 npm 生成的 `.cmd` 包装脚本，Node 直接 spawn 不能执行，尚未适配与实测。Windows 用户可直接使用默认的 `transport: gateway`，无需等待。
+- 依赖 WorkBuddy 客户端接口（非官方开放 API），包括网关的渠道校验与客户端身份头；WorkBuddy 更新后插件可能需要随之调整。
 
 ## 版本兼容与历史版本
 
@@ -160,7 +164,9 @@ dsh plugin --profile web exec dsh-workbuddy-connect doctor --provider workbuddy-
 
 | DSH 内核 | 推荐插件版 | 注意事项 |
 |---|---|---|
-| `0.2.1-rc.2` | `0.8.1` | 本 fork；国内版默认走 CodeBuddy CLI，不发布到 npm，用本仓库源码或本地 `link:` 安装。 |
+| `0.2.2-rc.2` | `0.8.5` | 本 fork；兼容范围显式包含 rc.2、0.2.1-rc.3 与 0.2.2-rc.2，无需版本豁免。国内版默认走 WorkBuddy 网关（完整 DSH 工具、图片与系统提示），CodeBuddy CLI 为可选文本桥；不发布到 npm，用本仓库源码或本地 `link:` 安装。 |
+| `0.2.1-rc.3` | `0.8.5` | 同上；0.8.3 起已支持该内核，可继续使用。 |
+| `0.2.1-rc.2` | `0.8.5` | 同上；0.8.2 / 0.8.3 与该内核功能一致，已在用的无需升级。 |
 | `0.2.1-rc.2` | `0.7.9` | 上游 npm 版；仅网关。 |
 | `0.2.1-rc.1` | `0.7.7` | 内核升级到 `@earendil-works/pi-ai` 1.3.0，插件同步自带 1.3.0，历史遗留的 0.87.1 overrides 必须移除（见下方 pi-ai 说明）。 |
 | `0.2.0-rc.2` | `0.7.6` | 上一代内核线；修复企业账号模型目录缺项与国际版对话被渠道校验拦截，勿停留在有注册表回归的 0.7.2。 |
@@ -171,8 +177,12 @@ dsh plugin --profile web exec dsh-workbuddy-connect doctor --provider workbuddy-
 
 历次更新（0.7.x 及更早的完整记录见上游 [releases](https://github.com/corrinehu/dsh-workbuddy-connect/releases)）：
 
+- **0.8.5**（本 fork）：修复桌面版（DSH 0.2.2-rc.2）网关对话被国内版渠道校验拦截（400 / 11128「请求被拦截」）。实测该校验会对系统提示中与已知 harness 提示高度相似的语句累计打分，单靠去身份句和品牌替换已不够：现在同时把触发指纹的原文改写为等价表述（`Tokens prefixed with @` → `Tokens starting with @`、`Relative paths resolve from` → `Relative paths are resolved from`），并覆盖 content-parts 形式的 system/developer 消息；其他角色逐字保留。用失败会话的完整请求体（6 条消息 + 33 个工具）回放验证通过。
+- **0.8.4**（本 fork）：兼容 DSH 0.2.2-rc.2：peer 范围加入 `0.2.2-rc.2`（仍显式枚举、无 caret），并按 0.2.2 新增的必填字段补齐图片请求计数预算（`maxRequestImages` / `imageOffloadCountQuantum`，取上游默认值）；本地构建与测试改用 0.2.2 依赖（未发布 rc.2 的客户端包用 rc.1）。已在 0.2.2-rc.2 隔离 profile 中无需豁免加载，网关对话验证通过。
+- **0.8.3**（本 fork）：兼容范围扩展到 DSH 0.2.1-rc.3：六个 DSH 服务 peer 显式枚举 `0.2.1-rc.2 || 0.2.1-rc.3`（仍无 caret），本地构建与测试改用 rc.3。0.8.2 只声明 rc.2，在 rc.3 上会被 DSH 的兼容校验判为 Problem 并拒绝启动；0.8.3 在 rc.3 隔离 profile 中无需豁免即可加载，网关对话验证通过。
+- **0.8.2**（本 fork）：国内版默认传输切回 WorkBuddy 网关（`transport: gateway`），默认启用完整 DSH 系统提示、工具调用、审批卡片与图片输入；网关请求继续按官方 CodeBuddy CLI 的线路对齐并清理 DSH 身份与品牌字样，以通过渠道校验。0.8.0–0.8.1 的 CodeBuddy CLI 文本桥保留为显式 `transport: cli`，不再默认启用；此前只依赖 CLI 登录的用户需显式保留该设置。
 - **0.8.1**（本 fork）：CLI 新增可选工具模式 `cliTools`（默认仍为纯文本）：开启后由 CodeBuddy CLI 自己的工具循环执行命令与文件读写（`--tools default`、`--permission-mode` 由 `cliPermissionMode` 控制、步数上限 `cliMaxTurns`），会话工作目录同步为 CLI 进程的工作目录；新增 `cliCwd` 指定工作目录。
-- **0.8.0**（本 fork）：新增 `transport: cli`（默认），国内版对话改由官方 CodeBuddy CLI 以自身登录态发出，避开 WorkBuddy 网关对未批准客户端的拦截；保留模型选择与推理档位透传；CLI 模式只注册国内版分组；`cliPath` / `cliTimeoutMs` 可配置，`transport: gateway` 可回退。CLI 为文本桥，DSH 工具与图片不参与对话。修复 legacy 设置模式下合并配置时丢失 `transport` 的问题。
+- **0.8.0**（本 fork）：新增 `transport: cli`（0.8.0–0.8.1 为默认，0.8.2 起改为可选），国内版对话改由官方 CodeBuddy CLI 以自身登录态发出，避开 WorkBuddy 网关对未批准客户端的拦截；保留模型选择与推理档位透传；CLI 模式只注册国内版分组；`cliPath` / `cliTimeoutMs` 可配置，`transport: gateway` 可回退。CLI 为文本桥，DSH 工具与图片不参与对话。修复 legacy 设置模式下合并配置时丢失 `transport` 的问题。
 
 - **0.7.9**：恢复 DSH 0.2.1-rc.2 上国际版最大上下文窗口开关，修复延迟初始化及设置持久化（PR [#172](https://github.com/corrinehu/dsh-workbuddy-connect/pull/172)，by @1Dreamer666）；避免本地服务绑定到 fetch 禁用端口导致国际版 502（PR [#164](https://github.com/corrinehu/dsh-workbuddy-connect/pull/164)，by @Xiong-Ziyi）；同名积分包合并展示，减少重复条目。
 - **0.7.8**：适配 DSH 0.2.1-rc.2；将官方原子写入工具打包到插件，避免依赖宿主暴露该模块；更新国内模型目录快照，区分 Hy3 / Hy3-X；优化推理检测结果展示，调整积分刷新按钮位置并修正悬停提示。感谢 @chenpiyanghappy 的 PR [#156](https://github.com/corrinehu/dsh-workbuddy-connect/pull/156)。

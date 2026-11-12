@@ -208,6 +208,43 @@ describe('WorkBuddyCredentialStore', () => {
     expect(store.desktopAuthPath()).toBe(second)
     await expect(store.resolve()).resolves.toMatchObject({ accessToken: 'at-b', nickname: 'B' })
   })
+
+  it('answers credential-file presence without unsealing or refreshing', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wb-store-'))
+    CLEANUP.push(() => rm(dir, { recursive: true, force: true }))
+    const desktop = join(dir, 'desktop.info')
+    const own = join(dir, 'own.json')
+    const store = new WorkBuddyCredentialStore({
+      variant: CN_VARIANT,
+      desktopPath: desktop,
+      ownPath: own,
+      refresh: async credential => ({ accessToken: credential.accessToken }),
+    })
+
+    // Nothing on disk: a signed-out variant must not advertise a roster.
+    expect(store.hasStoredCredential()).toBe(false)
+
+    // Garbage is not a credential document.
+    await writeFile(own, 'not even valid json')
+    expect(store.hasStoredCredential()).toBe(false)
+
+    // A plaintext document for the other product is provably unusable here.
+    await writeFile(own, JSON.stringify({
+      auth: { accessToken: 'at', refreshToken: 'rt', expiresAt: Date.now() + 3600_000, domain: 'www.workbuddy.ai' },
+      account: { uid: 'uid-ai' },
+    }))
+    expect(store.hasStoredCredential()).toBe(false)
+
+    // An opaque envelope cannot be classified synchronously, so it counts;
+    // the async sweep is what hides the group when it turns out unusable.
+    await writeFile(own, JSON.stringify({ encrypted: 'v10:...' }))
+    expect(store.hasStoredCredential()).toBe(true)
+
+    // The plugin's own refreshed copy counts even when the desktop file is absent.
+    await rm(own)
+    await writeFile(desktop, nestedDoc(Date.now() + 3600_000))
+    expect(store.hasStoredCredential()).toBe(true)
+  })
 })
 
 describe('Windows default desktop path probing', () => {

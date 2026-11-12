@@ -1056,6 +1056,23 @@ declare class WorkBuddyCredentialStore {
   setDesktopPath(path: string | undefined): void;
   /** The resolved desktop auth-file path, for diagnostics. */
   desktopAuthPath(): string | undefined;
+  /**
+   * Whether a credential file exists that this variant could plausibly use,
+   * without unsealing or refreshing it.
+   *
+   * Startup-only. A headless host resolves its configured default model right
+   * after the provider registers, before the asynchronous credential sweep can
+   * adopt an account and reveal the group. This check lets the catalog start
+   * visible so that resolution sees the roster. Plaintext documents that are
+   * provably unusable here — no token, or another product's region — are
+   * refused synchronously, because showing their roster is the exact mistake
+   * the sweep's cross-product guard exists to prevent. An at-rest envelope
+   * cannot be classified without the asynchronous unseal, so it stays a
+   * candidate; the sweep still hides the group when it fails.
+   */
+  hasStoredCredential(): boolean;
+  /** See {@link hasStoredCredential}; never throws for a missing file. */
+  private credentialFilePlausible;
   /** The plugin-owned copy path, for diagnostics. */
   ownAuthPath(): string;
   /** Read the freshest stored credential without refreshing anything. */
@@ -1393,14 +1410,14 @@ interface WorkBuddyShimOptions {
   cli?: CodeBuddyOptions;
 }
 /**
- * Strip {@link DSH_IDENTITY_SENTENCE} and replace {@link DSH_BRAND} mentions
- * in the system/developer messages of a chat body so the CN gateway's channel
- * check (11128) is not tripped.
+ * Strip {@link DSH_IDENTITY_SENTENCE}, replace {@link DSH_BRAND} mentions, and
+ * apply {@link CN_PROMPT_REWRITES} in the system/developer messages of a chat
+ * body so the CN gateway's channel check (11128) is not tripped.
  *
  * Gateway path only: the CLI transport returns before this is reached, so the
- * official-CLI bridge is never altered. A body that is not a JSON object, or
- * whose message content is not a plain string, is returned unchanged — the
- * content-parts form is left intact.
+ * official-CLI bridge is never altered. Content may be a string or the
+ * content-parts form; only text parts are rewritten, and every other role
+ * passes verbatim. A body that is not a JSON object is returned unchanged.
  */
 declare function stripDshIdentity(prepared: string): string;
 /**
@@ -1464,7 +1481,8 @@ interface WorkBuddyAdapter {
  * public export surface (root entry, `lib/` deep imports blocked by the
  * exports map, `src/` not shipped), so hand-assembly is the only supported
  * path and every newly required field must be adopted here explicitly —
- * `modelErrors` since 0.1.5-alpha.2 (#12).
+ * `modelErrors` since 0.1.5-alpha.2 (#12), the image count budgets since
+ * 0.2.2-rc.2.
  */
 declare function createWorkBuddyAdapter(options: WorkBuddyAdapterOptions): WorkBuddyAdapter;
 //#endregion
@@ -1768,9 +1786,11 @@ interface Config {
   /** Use the largest context window the international catalog explicitly offers. */
   useMaximumContextWindow?: boolean;
   /**
-   * How chat requests reach a model: the official CodeBuddy CLI (`cli`) or
-   * WorkBuddy's HTTP gateway (`gateway`). The CLI is not rejected as an
-   * unapproved client. Off, it is text-only: DSH tools are unavailable.
+   * How chat requests reach a model: WorkBuddy's HTTP gateway (`gateway`,
+   * the default) or the official CodeBuddy CLI (`cli`). The gateway carries
+   * DSH's own tools, approvals, images, and system prompt; the CLI is not
+   * rejected as an unapproved client, but is text-only: DSH tools are
+   * unavailable.
    */
   transport?: 'cli' | 'gateway';
   /** CodeBuddy CLI binary used by `cli`; a path or a name searched on PATH. */

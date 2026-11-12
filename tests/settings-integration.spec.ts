@@ -1138,7 +1138,15 @@ describe('WorkBuddy Host settings integration', () => {
     // Delay publication independently of the plugin fiber becoming active.
     let availableAt = Date.now() + delay
     const describeStates: Array<number | undefined> = []
-    let pluginFiber: { state?: number; config: Record<string, unknown>; entry?: { id: string; options: { id: string } } } | undefined
+    let pluginFiber: {
+      state?: number
+      config: Record<string, unknown>
+      // dsh-settings 0.2.2 reads `effectiveConfig` (the resolved config the
+      // loader published) instead of the raw `config`, so the fixture has to
+      // publish both the way a real edit does.
+      _effectiveConfig?: Record<string, unknown>
+      entry?: { id: string; options: { id: string } }
+    } | undefined
     let saved: Record<string, unknown> = {}
     let failWrite = false
     let writes = 0
@@ -1162,7 +1170,9 @@ describe('WorkBuddy Host settings integration', () => {
         saved = next
         writes += 1
         // Model the editor applying resolved Config after a successful save.
-        Object.assign(pluginFiber!.config, resolveConfig({ name: 'fixture', callback() {}, Config: WorkBuddy.Config } as never, saved))
+        const resolved = resolveConfig({ name: 'fixture', callback() {}, Config: WorkBuddy.Config } as never, saved)
+        Object.assign(pluginFiber!.config, resolved)
+        pluginFiber!._effectiveConfig = resolved as unknown as Record<string, unknown>
       },
     }
 

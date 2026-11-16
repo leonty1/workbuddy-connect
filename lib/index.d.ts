@@ -1411,8 +1411,8 @@ interface WorkBuddyShimOptions {
 }
 /**
  * Strip {@link DSH_IDENTITY_SENTENCE}, replace {@link DSH_BRAND} mentions, and
- * apply {@link CN_PROMPT_REWRITES} in the system/developer messages of a chat
- * body so the CN gateway's channel check (11128) is not tripped.
+ * apply {@link CN_PROMPT_REWRITES} in the {@link SCORED_ROLES} messages of a
+ * chat body so the CN gateway's channel check (11128) is not tripped.
  *
  * Gateway path only: the CLI transport returns before this is reached, so the
  * official-CLI bridge is never altered. Content may be a string or the

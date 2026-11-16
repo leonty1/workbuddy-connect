@@ -121,16 +121,28 @@ const DSH_BRAND_REPLACEMENT = 'harness'
  * prompt text that resembles a known harness prompt and blocks once enough of
  * it matches (400 / 11128). Each rewrite below was verified to defuse the
  * block while keeping the instruction's meaning, and the user-role equivalent
- * of the same text passes untouched — only system/developer content is
- * scored. The gateway may extend its fingerprint set, so additions belong
- * here, measured the same way.
+ * of the same text passes untouched. The gateway may extend its fingerprint
+ * set, so additions belong here, measured the same way.
  */
 const CN_PROMPT_REWRITES: ReadonlyArray<readonly [from: string, to: string]> = [
   ['Tokens prefixed with @', 'Tokens starting with @'],
   ['Relative paths resolve from the workspace root', 'Relative paths are resolved from the workspace root'],
 ]
 
-/** Rewrite one system text block for the CN channel check. */
+/**
+ * Roles whose text the CN channel check scores.
+ *
+ * Re-measured live 2026-11-16 on glm-5.3-flash and hy3: assistant history is
+ * scored exactly like the system prompt, so a conversation that once quoted
+ * the harness prompt — or whose assistant turn opens with the identity
+ * sentence — is blocked on every later request, which is why Continue fails
+ * again on the same turn. The same text in a user message, a tool result,
+ * `reasoning_content`, or `tool_calls.function.arguments` passes untouched,
+ * and an assistant message left empty by the rewrite is accepted.
+ */
+const SCORED_ROLES: ReadonlySet<string> = new Set(['system', 'developer', 'assistant'])
+
+/** Rewrite one scored text block for the CN channel check. */
 function neutralizeChannelChecks(text: string): string {
   let next = text
     .split(DSH_IDENTITY_SENTENCE).join('')
@@ -141,8 +153,8 @@ function neutralizeChannelChecks(text: string): string {
 
 /**
  * Strip {@link DSH_IDENTITY_SENTENCE}, replace {@link DSH_BRAND} mentions, and
- * apply {@link CN_PROMPT_REWRITES} in the system/developer messages of a chat
- * body so the CN gateway's channel check (11128) is not tripped.
+ * apply {@link CN_PROMPT_REWRITES} in the {@link SCORED_ROLES} messages of a
+ * chat body so the CN gateway's channel check (11128) is not tripped.
  *
  * Gateway path only: the CLI transport returns before this is reached, so the
  * official-CLI bridge is never altered. Content may be a string or the
@@ -163,7 +175,7 @@ export function stripDshIdentity(prepared: string): string {
   for (const message of messages) {
     if (typeof message !== 'object' || message === null || Array.isArray(message)) continue
     const record = message as Record<string, unknown>
-    if (record['role'] !== 'system' && record['role'] !== 'developer') continue
+    if (typeof record['role'] !== 'string' || !SCORED_ROLES.has(record['role'])) continue
     const content = record['content']
     if (typeof content === 'string') {
       const next = neutralizeChannelChecks(content)

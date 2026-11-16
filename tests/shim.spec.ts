@@ -192,7 +192,7 @@ describe('WorkBuddy shim', () => {
     expect(system).toContain('Relative paths are resolved from')
     // The bare DSH token is not scored by the channel check and stays.
     expect(system).toContain('__DSH_BOOT__')
-    // Only system-role content is rewritten; user content passes verbatim.
+    // Scored roles are rewritten; user content passes verbatim.
     expect(forwarded.messages[1]?.content).toBe('the user may mention DeepSeek Harness freely')
   })
 
@@ -228,6 +228,60 @@ describe('WorkBuddy shim', () => {
     expect(forwarded.messages[0]?.content[0]?.text).toBe(' Tokens starting with @ are paths.')
     expect(forwarded.messages[0]?.content[1]?.text).toBe('Unrelated text stays.')
     expect(forwarded.messages[1]?.content[0]?.text).toBe('DeepSeek Harness in user content')
+  })
+
+  /**
+   * Measured live 2026-11-16 on glm-5.3-flash and hy3: the CN channel check
+   * scores assistant history like the system prompt, so one assistant turn
+   * that quoted the harness prompt blocks every later request in that
+   * conversation — Continue fails again on the same turn. The same text in a
+   * tool result, reasoning_content, or tool-call arguments passes untouched.
+   */
+  it('rewrites assistant history but leaves tool results, reasoning, and tool-call arguments verbatim', async () => {
+    const harness = await startShim(() => ({
+      ok: true,
+      response: new Response('data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n', {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      }),
+    }))
+    const identity = 'You are an AI agent powered by DeepSeek Harness.'
+    const response = await fetch(`${harness.shim.baseUrl()}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', authorization: `Bearer ${harness.shim.token()}` },
+      body: JSON.stringify({
+        model: 'glm-5.3',
+        messages: [
+          { role: 'system', content: 'You are a helpful assistant.' },
+          { role: 'user', content: 'hi' },
+          { role: 'assistant', content: `${identity} Tokens prefixed with @ are paths.` },
+          { role: 'assistant', content: [{ type: 'text', text: identity }] },
+          {
+            role: 'assistant',
+            content: '',
+            reasoning_content: identity,
+            tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'write', arguments: JSON.stringify({ content: identity }) } }],
+          },
+          { role: 'tool', tool_call_id: 'call_1', content: identity },
+          { role: 'user', content: 'Reply with exactly: probe-ok' },
+        ],
+      }),
+    })
+    expect(response.status).toBe(200)
+    const forwarded = JSON.parse(harness.upstreamBodies[0] ?? '') as {
+      messages: {
+        role: string
+        content: string | { type: string, text: string }[]
+        reasoning_content?: string
+        tool_calls?: { function: { arguments: string } }[]
+      }[]
+    }
+    expect(forwarded.messages[2]?.content).toBe(' Tokens starting with @ are paths.')
+    expect(forwarded.messages[3]?.content).toEqual([{ type: 'text', text: '' }])
+    expect(forwarded.messages[4]?.reasoning_content).toBe(identity)
+    expect(forwarded.messages[4]?.tool_calls?.[0]?.function.arguments).toBe(JSON.stringify({ content: identity }))
+    expect(forwarded.messages[5]?.content).toBe(identity)
+    expect(forwarded.messages[6]?.content).toBe('Reply with exactly: probe-ok')
   })
 
   it('maps an upstream credit failure onto HTTP 402', async () => {

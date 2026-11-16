@@ -71,13 +71,15 @@ describe('peer manifest pins the verified DSH cores', () => {
    * means editing this list after a real run, not letting a caret do it.
    * Since 0.7.7 the list was 0.2.1-rc.1 alone: 0.2.0-rc.2 cannot be
    * smoke-tested anymore alongside it, and an untested arm is support
-   * nobody verified. 0.8.4 enumerates 0.2.1-rc.2, 0.2.1-rc.3, and
-   * 0.2.2-rc.2 (still caret-free; unchanged in 0.8.5): 0.2.2-rc.2 was
-   * smoke-tested through an isolated headless gateway run, rc.3 likewise,
-   * and rc.2 carries over from 0.8.2, whose code is unchanged apart from
-   * the manifest and the image-count fields 0.2.2 made required. Bundles
-   * the official atomic-write helper. Local checks do not replace Desktop
-   * acceptance testing.
+   * nobody verified. 0.8.6 enumerates 0.2.1-rc.2, 0.2.1-rc.3, 0.2.2-rc.2
+   * and 0.2.2-rc.3 (still caret-free): the 0.2.1 arms carry over from
+   * 0.8.2, whose code is unchanged apart from the manifest and the
+   * image-count fields 0.2.2 made required, and 0.2.2-rc.2 was smoke-tested
+   * through an isolated headless gateway run. rc.3 is the core the Desktop
+   * app ships since 2026-11-13; without it in this list the host refuses to
+   * load the plugin at all and every WorkBuddy model reports NO_ADAPTER.
+   * Bundles the official atomic-write helper. Local checks do not replace
+   * Desktop acceptance testing.
    *
    * #74's lesson on top of it: pi-ai must NOT be a dual-arm range. An
    * in-place upgrade from a 0.6.x-era pnpm profile keeps satisfying
@@ -104,7 +106,7 @@ describe('peer manifest pins the verified DSH cores', () => {
     ) as { peerDependencies: Record<string, string> }
     for (const name of DSH_SERVICE_PEERS) {
       expect(pkg.peerDependencies[name], `${name} missing from peerDependencies`)
-        .toBe('0.2.1-rc.2 || 0.2.1-rc.3 || 0.2.2-rc.2')
+        .toBe('0.2.1-rc.2 || 0.2.1-rc.3 || 0.2.2-rc.2 || 0.2.2-rc.3')
     }
   })
 
@@ -114,7 +116,7 @@ describe('peer manifest pins the verified DSH cores', () => {
     const pkg = JSON.parse(
       readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
     ) as { peerDependencies: Record<string, string>, devDependencies: Record<string, string> }
-    expect(pkg.devDependencies['@deepseek-ai/dsh-atomic-write']).toBe('0.2.2-rc.2')
+    expect(pkg.devDependencies['@deepseek-ai/dsh-atomic-write']).toBe('0.2.2-rc.3')
     expect(pkg.peerDependencies['@deepseek-ai/dsh-atomic-write']).toBeUndefined()
   })
 

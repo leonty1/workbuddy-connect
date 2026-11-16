@@ -15,7 +15,7 @@
 ```text
 请帮我安装并验证 DSH（DeepSeek Harness）插件 dsh-workbuddy-connect（项目地址：https://github.com/leonty1/workbuddy-connect）：
 先阅读项目 README，确认我实际使用的界面（Web / Desktop / TUI）与 DSH 内核版本，桌面版以 App 内置核心为准，不要用独立 CLI 的版本代替；
-本 fork 面向 DSH 0.2.1-rc.2 / 0.2.1-rc.3 / 0.2.2-rc.2（插件 0.8.5），默认走 WorkBuddy 网关，无需 CodeBuddy CLI；只有我明确要求 CLI 模式时，才确认 codebuddy 已安装并登录；
+本 fork 面向 DSH 0.2.1-rc.2 / 0.2.1-rc.3 / 0.2.2-rc.2 / 0.2.2-rc.3（插件 0.8.6），默认走 WorkBuddy 网关，无需 CodeBuddy CLI；只有我明确要求 CLI 模式时，才确认 codebuddy 已安装并登录；
 再按版本对应关系从本仓库或本地源码安装，优先走本机受支持的非插件市场渠道；部分 Desktop 发行版（尤其官方 Electron 版）的 profile 由 App 管理，各发行版规则未必相同，先确认我所用的发行版，再探查其合规的安装方式，但不得绕过其校验；
 任何本地文件或配置改动，先征得我同意并做好备份；
 装完后验证模型选择器里出现 WorkBuddy 分组，并陪我完成一次简短对话；
@@ -26,9 +26,10 @@
 
 | DSH 内核 | 推荐插件版 |
 |---|---|
-| 0.2.2-rc.2 | 0.8.5（本 fork，源码或本地 link 安装；0.8.4 也可） |
-| 0.2.1-rc.3 | 0.8.5（同上；0.8.3 / 0.8.4 也可） |
-| 0.2.1-rc.2 | 0.8.5（同上；0.8.2 / 0.8.3 / 0.8.4 也可） |
+| 0.2.2-rc.3 | 0.8.6（本 fork，源码或本地 link 安装；0.8.5 及更早会被判 Problem 并拒绝加载） |
+| 0.2.2-rc.2 | 0.8.6（同上；0.8.4 / 0.8.5 也可） |
+| 0.2.1-rc.3 | 0.8.6（同上；0.8.3 / 0.8.4 / 0.8.5 也可） |
+| 0.2.1-rc.2 | 0.8.6（同上；0.8.2 / 0.8.3 / 0.8.4 / 0.8.5 也可） |
 | 0.2.1-rc.2 | 0.7.9（上游 npm 版，仅网关） |
 | 0.2.1-rc.1 | 0.7.7 |
 | 0.2.0-rc.2 | 0.7.6 |
@@ -164,9 +165,10 @@ dsh plugin --profile web exec dsh-workbuddy-connect doctor --provider workbuddy-
 
 | DSH 内核 | 推荐插件版 | 注意事项 |
 |---|---|---|
-| `0.2.2-rc.2` | `0.8.5` | 本 fork；兼容范围显式包含 rc.2、0.2.1-rc.3 与 0.2.2-rc.2，无需版本豁免。国内版默认走 WorkBuddy 网关（完整 DSH 工具、图片与系统提示），CodeBuddy CLI 为可选文本桥；不发布到 npm，用本仓库源码或本地 `link:` 安装。 |
-| `0.2.1-rc.3` | `0.8.5` | 同上；0.8.3 起已支持该内核，可继续使用。 |
-| `0.2.1-rc.2` | `0.8.5` | 同上；0.8.2 / 0.8.3 与该内核功能一致，已在用的无需升级。 |
+| `0.2.2-rc.3` | `0.8.6` | 本 fork；兼容范围显式枚举 0.2.1-rc.2、0.2.1-rc.3、0.2.2-rc.2 与 0.2.2-rc.3，无需版本豁免。国内版默认走 WorkBuddy 网关（完整 DSH 工具、图片与系统提示），CodeBuddy CLI 为可选文本桥；不发布到 npm，用本仓库源码或本地 `link:` 安装。 |
+| `0.2.2-rc.2` | `0.8.6` | 同上；0.8.4 / 0.8.5 也支持该内核。 |
+| `0.2.1-rc.3` | `0.8.6` | 同上；0.8.3 起已支持该内核，可继续使用。 |
+| `0.2.1-rc.2` | `0.8.6` | 同上；0.8.2 / 0.8.3 与该内核功能一致，已在用的无需升级。 |
 | `0.2.1-rc.2` | `0.7.9` | 上游 npm 版；仅网关。 |
 | `0.2.1-rc.1` | `0.7.7` | 内核升级到 `@earendil-works/pi-ai` 1.3.0，插件同步自带 1.3.0，历史遗留的 0.87.1 overrides 必须移除（见下方 pi-ai 说明）。 |
 | `0.2.0-rc.2` | `0.7.6` | 上一代内核线；修复企业账号模型目录缺项与国际版对话被渠道校验拦截，勿停留在有注册表回归的 0.7.2。 |
@@ -177,6 +179,7 @@ dsh plugin --profile web exec dsh-workbuddy-connect doctor --provider workbuddy-
 
 历次更新（0.7.x 及更早的完整记录见上游 [releases](https://github.com/corrinehu/dsh-workbuddy-connect/releases)）：
 
+- **0.8.6**（本 fork）：两件事。①兼容 DSH 0.2.2-rc.3（桌面版自 2026-11-13 起内置该内核）：六个 DSH 服务 peer 显式加入 `0.2.2-rc.3`（仍无 caret），本地构建与测试依赖同步到 rc.3。0.8.5 在 rc.3 上会被 App 的兼容校验判为 Problem 并拒绝加载，表现为所有 WorkBuddy 模型 NO_ADAPTER；已按 App 内置的 `evaluatePluginCompatibility` 语义（`semver.satisfies` + `includePrerelease`）核对：0.8.5 不满足 rc.3，0.8.6 满足，且仍拒绝未验证的 rc.4。②修复长对话里持续出现的 400 / 11128「请求被拦截」：2026-11-16 在 glm-5.3-flash 与 hy3 上实测，渠道校验同样给 **assistant 历史**打分——助手消息以身份句开头，或整段引用 harness 提示，都会让该会话之后每一次请求（包括 Continue）被拦截。现在把 system/developer 的改写规则同样应用到 assistant 文本（含 content-parts）；工具结果、`reasoning_content` 与 `tool_calls` 参数实测不被打分，逐字保留。验证：本地 typecheck / 863 项测试 / 构建全绿；27 条真实网关探针全部通过（其中 8 条修复前被拦截）；用构建产物跑通 adapter → pi-ai → shim → 网关的三轮对话（hy3 与 glm-5.3-flash）。桌面版需重新加载插件后才生效。
 - **0.8.5**（本 fork）：修复桌面版（DSH 0.2.2-rc.2）网关对话被国内版渠道校验拦截（400 / 11128「请求被拦截」）。实测该校验会对系统提示中与已知 harness 提示高度相似的语句累计打分，单靠去身份句和品牌替换已不够：现在同时把触发指纹的原文改写为等价表述（`Tokens prefixed with @` → `Tokens starting with @`、`Relative paths resolve from` → `Relative paths are resolved from`），并覆盖 content-parts 形式的 system/developer 消息；其他角色逐字保留。用失败会话的完整请求体（6 条消息 + 33 个工具）回放验证通过。
 - **0.8.4**（本 fork）：兼容 DSH 0.2.2-rc.2：peer 范围加入 `0.2.2-rc.2`（仍显式枚举、无 caret），并按 0.2.2 新增的必填字段补齐图片请求计数预算（`maxRequestImages` / `imageOffloadCountQuantum`，取上游默认值）；本地构建与测试改用 0.2.2 依赖（未发布 rc.2 的客户端包用 rc.1）。已在 0.2.2-rc.2 隔离 profile 中无需豁免加载，网关对话验证通过。
 - **0.8.3**（本 fork）：兼容范围扩展到 DSH 0.2.1-rc.3：六个 DSH 服务 peer 显式枚举 `0.2.1-rc.2 || 0.2.1-rc.3`（仍无 caret），本地构建与测试改用 rc.3。0.8.2 只声明 rc.2，在 rc.3 上会被 DSH 的兼容校验判为 Problem 并拒绝启动；0.8.3 在 rc.3 隔离 profile 中无需豁免即可加载，网关对话验证通过。

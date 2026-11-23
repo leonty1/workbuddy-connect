@@ -417,8 +417,8 @@ describe('request-image contract across host generations', () => {
         // drain
       }
     }).rejects.toThrow('PAST_VALIDATION')
-    // The 0.1.6 target shape reached the store with only the budget added.
-    expect(observed).toMatchObject({ width: 1, height: 1, maxBytes: 1_048_576, maxPixels: 4_194_304 })
+    // The 0.2.3 target shape reached the store with only the budget added.
+    expect(observed).toMatchObject({ width: 1, height: 1, maxImageBytes: 1_048_576, maxPixels: 4_194_304 })
   })
 
   it('replaces a present-but-non-positive maxPixels with the route budget', async () => {

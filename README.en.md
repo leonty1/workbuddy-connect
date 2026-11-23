@@ -15,7 +15,7 @@ Brings WorkBuddy models into [DeepSeek Harness](https://github.com/deepseek-ai/d
 ```text
 Please install and verify the DSH (DeepSeek Harness) plugin dsh-workbuddy-connect for me (project: https://github.com/leonty1/workbuddy-connect).
 Start by reading the project README and confirming which interface I actually use (Web / Desktop / TUI) and its DSH core version — for the Desktop app, the bundled core, never the standalone CLI's version.
-This fork targets DSH 0.2.1-rc.2 / 0.2.1-rc.3 / 0.2.2-rc.2 / 0.2.2-rc.3 / 0.2.2-rc.5 (plugin 0.8.7) and uses the WorkBuddy gateway by default — no CodeBuddy CLI needed; only check that codebuddy is installed and signed in if I explicitly ask for CLI mode.
+This fork targets DSH 0.2.1-rc.2 / 0.2.1-rc.3 / 0.2.2-rc.2 / 0.2.2-rc.3 / 0.2.2-rc.5 / 0.2.3-alpha.2 (plugin 0.8.8) and uses the WorkBuddy gateway by default — no CodeBuddy CLI needed; only check that codebuddy is installed and signed in if I explicitly ask for CLI mode.
 Then install from this repository or local source, preferring a locally supported non-market channel; on some Desktop distributions (the official Electron app in particular) the profile is app-managed and rules vary by distribution — check mine first, then explore its compliant install route, but never bypass its validation.
 Ask for my consent and make backups before changing any local files or configuration.
 After installing, verify the WorkBuddy group appears in the model picker and walk me through one short conversation.
@@ -26,11 +26,12 @@ Core-to-plugin quick reference (full table in "Compatibility and release history
 
 | DSH core | Recommended plugin |
 |---|---|
-| 0.2.2-rc.5 | 0.8.7 (this fork, source or local link install; 0.8.6 and earlier are flagged Problem and refused) |
-| 0.2.2-rc.3 | 0.8.7 (same; 0.8.6 also works) |
-| 0.2.2-rc.2 | 0.8.7 (same; 0.8.4 / 0.8.5 / 0.8.6 also work) |
-| 0.2.1-rc.3 | 0.8.7 (same; 0.8.3 / 0.8.4 / 0.8.5 / 0.8.6 also work) |
-| 0.2.1-rc.2 | 0.8.7 (same; 0.8.2 / 0.8.3 / 0.8.4 / 0.8.5 / 0.8.6 also work) |
+| 0.2.3-alpha.2 | 0.8.8 (this fork, source or local link install; 0.8.7 and earlier are flagged Problem and refused) |
+| 0.2.2-rc.5 | 0.8.8 (same; 0.8.7 also works) |
+| 0.2.2-rc.3 | 0.8.8 (same; 0.8.6 / 0.8.7 also work) |
+| 0.2.2-rc.2 | 0.8.8 (same; 0.8.4 / 0.8.5 / 0.8.6 / 0.8.7 also work) |
+| 0.2.1-rc.3 | 0.8.8 (same; 0.8.3 and later also work) |
+| 0.2.1-rc.2 | 0.8.8 (same; 0.8.2 and later also work) |
 | 0.2.1-rc.2 | 0.7.9 (upstream npm, gateway only) |
 | 0.2.1-rc.1 | 0.7.7 |
 | 0.2.0-rc.2 | 0.7.6 |
@@ -165,11 +166,12 @@ The plugin version must match the DSH core — a mismatched combination fails to
 
 | DSH core | Recommended plugin | Notes |
 |---|---|---|
-| `0.2.2-rc.5` | `0.8.7` | This fork; the compatibility range explicitly enumerates 0.2.1-rc.2, 0.2.1-rc.3, 0.2.2-rc.2, 0.2.2-rc.3, and 0.2.2-rc.5, with no version exemption needed. CN chat uses the WorkBuddy gateway by default (full DSH tools, images, and system prompt), with the CodeBuddy CLI as an optional text bridge. Not published to npm — install from this repository or a local `link:`. |
-| `0.2.2-rc.3` | `0.8.7` | Same; 0.8.6 also supports this core. |
-| `0.2.2-rc.2` | `0.8.7` | Same; 0.8.4 / 0.8.5 / 0.8.6 also support this core. |
-| `0.2.1-rc.3` | `0.8.7` | Same; 0.8.3 already supports this core and remains usable. |
-| `0.2.1-rc.2` | `0.8.7` | Same; 0.8.2 / 0.8.3 are functionally identical on this core, so an existing install needs no upgrade. |
+| `0.2.3-alpha.2` | `0.8.8` | This fork; the desktop app ships this core since 2026-11-23, and 0.8.7 and earlier are flagged Problem and refused. 0.8.8 adds the core to the compatibility range and follows the 0.2.3 rename by supplying both `maxImageBytes` and the now-required `requestImageBudgetCount` while keeping the older `requestImageMaxBytes` old cores read, so one manifest also runs on 0.2.1–0.2.2 cores. |
+| `0.2.2-rc.5` | `0.8.8` | Same; 0.8.7 also supports this core. |
+| `0.2.2-rc.3` | `0.8.8` | Same; 0.8.6 / 0.8.7 also support this core. |
+| `0.2.2-rc.2` | `0.8.8` | Same; 0.8.4 / 0.8.5 / 0.8.6 / 0.8.7 also support this core. |
+| `0.2.1-rc.3` | `0.8.8` | Same; 0.8.3 already supports this core and remains usable. |
+| `0.2.1-rc.2` | `0.8.8` | Same; 0.8.2 already supports this core, so an existing install needs no upgrade. |
 | `0.2.1-rc.2` | `0.7.9` | Upstream npm release; gateway only. |
 | `0.2.1-rc.1` | `0.7.7` | The core moved to `@earendil-works/pi-ai` 1.3.0, so the plugin bundles 1.3.0 too — a leftover 0.87.1 overrides entry must be removed (see the pi-ai note below). |
 | `0.2.0-rc.2` | `0.7.6` | Previous core line; fixes enterprise catalog gaps and international chat requests blocked by the upstream channel check. Avoid 0.7.2 with its registry regression. |
@@ -180,6 +182,7 @@ The plugin version must match the DSH core — a mismatched combination fails to
 
 Release history (full 0.7.x and earlier records at the upstream [releases](https://github.com/corrinehu/dsh-workbuddy-connect/releases)):
 
+- **0.8.8** (this fork): supports DSH 0.2.3-alpha.2, the core the desktop app ships since 2026-11-23: the six DSH service peers explicitly gain `0.2.3-alpha.2` (still no carets) and local build/test dependencies move to alpha.2; 0.8.7 and earlier are flagged Problem by the app's compatibility check and refused (NO_ADAPTER). This core renames `ResolvedPiAiProviderProfile.requestImageMaxBytes` to `maxImageBytes` and adds a required `requestImageBudgetCount` (a fixed divisor of `maxRequestImageBytes`) — the plugin supplies both while keeping the old name, so older cores still read what they expect and image behaviour is unchanged. On the test side, cordis now matches the `4.2.0-alpha.1` the app actually ships (with include / loader `1.2.0-alpha.1`): 0.2.3's `LlmRuntime` is a Typert remote service, and cross-instance reflection made the integration tests fail to boot. `dsh-client-ui-settings-plugins` is not published on npm at alpha.2, so its type-only dependency stays at rc.5. Checked against the app's own `evaluatePluginCompatibility` semantics: 0.8.8 passes alpha.2 and still refuses unverified cores such as alpha.3 or the 0.2.3 release.
 - **0.8.7** (this fork): supports DSH 0.2.2-rc.5, the core the desktop app ships since 2026-11-18: the six DSH service peers explicitly gain `0.2.2-rc.5` (still no carets) and local build/test dependencies move to rc.5. On rc.5 the app's compatibility check flags 0.8.6 as Problem and refuses to load it (NO_ADAPTER for every WorkBuddy model); checked against the rc.5 app's own `evaluatePluginCompatibility` semantics: 0.8.6 fails rc.5, 0.8.7 passes, and unverified cores are still refused. The rc.5 gate logic is unchanged from rc.3 and the plugin code is untouched.
 - **0.8.6** (this fork): two fixes. (1) Supports DSH 0.2.2-rc.3, the core the desktop app ships since 2026-11-13: the six DSH service peers explicitly gain `0.2.2-rc.3` (still no carets) and local build/test dependencies move to rc.3. On rc.3 the app's compatibility check flags 0.8.5 as Problem and refuses to load it, which surfaces as NO_ADAPTER for every WorkBuddy model; checked against the app's own `evaluatePluginCompatibility` semantics (`semver.satisfies` with `includePrerelease`): 0.8.5 fails rc.3, 0.8.6 passes, and an unverified rc.4 is still refused. (2) Fixes the recurring 400 / 11128 "Request blocked" in long conversations: measured live 2026-11-16 on glm-5.3-flash and hy3, the channel check scores **assistant history** too — an assistant turn opening with the identity sentence, or quoting the harness prompt wholesale, blocks every later request in that conversation, Continue included. The system/developer rewrites now apply to assistant text as well (including content-parts); tool results, `reasoning_content`, and `tool_calls` arguments measurably are not scored and pass verbatim. Verified: local typecheck / 863 tests / build green; 27 live gateway probes pass (8 of them blocked before the fix); three-turn conversations through the built artifact (adapter → pi-ai → shim → gateway) on hy3 and glm-5.3-flash. The desktop app must reload the plugin for this to take effect.
 - **0.8.5** (this fork): fixes desktop (DSH 0.2.2-rc.2) gateway chats being blocked by the CN channel check (400 / 11128 "Request blocked"). Live bisection shows the check scores system-prompt text that resembles a known harness prompt and blocks once enough matches accumulate, so removing the identity sentence and brand mentions was no longer enough: the fingerprinted sentences are now rewritten to equivalent phrasing (`Tokens prefixed with @` → `Tokens starting with @`, `Relative paths resolve from` → `Relative paths are resolved from`), and content-parts system/developer messages are covered too; other roles pass verbatim. Verified by replaying the full failed-session body (6 messages + 33 tools).

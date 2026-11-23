@@ -28,15 +28,24 @@ export const WORKBUDDY_STREAM_IDLE_TIMEOUT_MS = 300_000
 
 /**
  * Image-request budgets at the dsh-llm-pi-ai defaults; the profile type made
- * them required in 0.1.1-rc.2, and the count pair in 0.2.2-rc.2. They bound
- * requests to models whose catalog entry declares `supportsImages`; text-only
- * models never receive images.
+ * them required in 0.1.1-rc.2, added the count pair in 0.2.2-rc.2, and in
+ * 0.2.3 renamed the per-image cap to `maxImageBytes` and made its divisor
+ * `requestImageBudgetCount` required. They bound requests to models whose
+ * catalog entry declares `supportsImages`; text-only models never receive
+ * images.
  */
 const REQUEST_IMAGE_BUDGETS = {
   maxRequestImageBytes: 20_971_520,
   maxRequestImages: 50,
   imageOffloadCountQuantum: 10,
+  // 0.2.3 divides maxRequestImageBytes into equal per-image shares, so the
+  // divisor must keep each share at or above the 1 MiB cap below
+  // (floor(20971520 / 14 / 4) * 3 = 1123473).
+  requestImageBudgetCount: 14,
   requestImagePixelBudget: 4_194_304,
+  // 0.2.3 renamed the per-image cap to `maxImageBytes`; both names are set so
+  // one profile serves either host generation (each reads only its own).
+  maxImageBytes: 1_048_576,
   requestImageMaxBytes: 1_048_576,
 } as const
 
